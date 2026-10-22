@@ -8,6 +8,7 @@ Um aplicativo desktop para organizar e rodar projetos locais com um clique. Cons
 - Botões para iniciar, parar, abrir no navegador, abrir no VS Code e revelar a pasta.
 - Logs em tempo real, favoritos, busca e filtros.
 - Hot reload para Flutter em debug e filtros de logs por texto e tipo.
+- Logs em janelas independentes, com opção de fixar no topo e marca-texto para a busca.
 - Branch atual e botões para puxar atualizações e publicar commits.
 - Verificação de porta local ocupada antes da execução.
 - Encerramento dos processos iniciados pelo app ao sair.
@@ -28,7 +29,7 @@ Para gerar o aplicativo:
 npm run package
 ```
 
-Abra `dist/v1.2.0/Orbita-darwin-arm64/Orbita.app` em um Mac Apple Silicon; em um Mac Intel, o diretório termina em `x64`. O aplicativo gerado localmente não tem assinatura de distribuição ou notarização da Apple.
+Abra `dist/v1.3.1/Orbita-darwin-arm64/Orbita.app` em um Mac Apple Silicon; em um Mac Intel, o diretório termina em `x64`. O aplicativo gerado localmente não tem assinatura de distribuição ou notarização da Apple.
 
 Para abrir uma atualização, feche a versão anterior do Órbita quando terminar de executar seus projetos. A nova versão reaproveita o catálogo local existente.
 
@@ -52,7 +53,9 @@ O botão do editor usa o protocolo `vscode://`, registrado pela instalação do 
 
 Projetos com `pubspec.yaml` e comando `flutter run` em debug mostram **Hot reload** no cartão e na janela de logs. O botão envia `r` ao processo em execução, preservando o processo e o estado da aplicação. Ele é habilitado quando o Flutter anuncia o hot reload; em Chrome, Edge e web-server, também aguarda a mensagem de início da aplicação no navegador. O resultado aparece nos logs, incluindo eventuais erros de compilação. Modos release, profile e machine não habilitam esse controle.
 
-A janela de logs combina busca literal sem diferenciar maiúsculas e filtros de **Erros**, **Avisos** ou **Informações**. Os tipos são inferidos pelo texto das mensagens; stack traces acompanham o erro anterior. O contador mostra quantas linhas ficaram visíveis, **Copiar filtrado** copia apenas essas linhas e **Limpar filtros** restaura a visualização completa. Desmarque **Acompanhar** para pausar a rolagem automática enquanto analisa uma mensagem.
+A janela de logs combina busca literal sem diferenciar maiúsculas e filtros de **Erros**, **Avisos** ou **Informações**. Cada ocorrência da busca recebe um marca-texto amarelo, preservando o texto original. Os tipos são inferidos pelo texto das mensagens; stack traces acompanham o erro anterior. O contador mostra as linhas visíveis e ocorrências, **Copiar filtrado** copia apenas o texto dessas linhas e **Limpar filtros** restaura a visualização completa. Desmarque **Acompanhar** para pausar a rolagem automática enquanto analisa uma mensagem.
+
+Use **Destacar janela** para mover os logs para uma janela independente, redimensioná-la ou arrastá-la para outro monitor. A janela mantém os filtros e continua recebendo logs em tempo real. **Sempre no topo** permite acompanhar os logs sobre o editor. **Voltar ao painel** reabre a modal com a busca e os filtros preservados. Cada projeto pode ter sua própria janela de logs; fechar uma delas mantém o projeto em execução.
 
 ## Puxar e publicar na branch
 
@@ -86,6 +89,6 @@ npm test
 npm run smoke
 ```
 
-Os testes verificam persistência, importação, execução, hot reload, filtros de logs, conflitos de porta, Git, falhas e encerramento da árvore de processos. O smoke test verifica na interface cadastro, favorito, execução, hot reload, filtros, parada, busca, publicação Git, pull e remoção de projetos temporários. Salva capturas locais em `screenshots/`.
+Os testes verificam persistência, importação, execução, hot reload, filtros e marca-texto dos logs, conflitos de porta, Git, falhas e encerramento da árvore de processos. O smoke test verifica na interface cadastro, favorito, execução, hot reload, filtros, parada, busca, publicação Git, pull e remoção de projetos temporários. Também verifica destacar, redimensionar, fixar e recolher a janela dos logs, além das atualizações em tempo real e preservação dos filtros. Salva capturas locais em `screenshots/`.
 
 O aplicativo foi preparado para macOS. Os processos são executados em grupos próprios; serviços que deliberadamente se desacoplam do processo original (por exemplo, `docker compose up -d`) têm seu ciclo de vida gerenciado pela ferramenta correspondente.

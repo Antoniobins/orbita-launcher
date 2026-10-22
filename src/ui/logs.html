@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Logs · Órbita</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="log-filter.js" defer></script>
+  <script src="log-view.js" defer></script>
+  <script src="log-window.js" defer></script>
+</head>
+<body class="detached-log-page">
+<section id="logs-dialog" class="detached-logs"><div class="modal-header"><div><p class="eyebrow">ACOMPANHE O QUE ESTÁ ACONTECENDO</p><h2 id="logs-title">Logs do projeto</h2></div><div class="detached-actions"><button class="button secondary small" id="pin-logs" aria-pressed="false">Sempre no topo</button><button class="button secondary small" id="attach-logs">↙ Voltar ao painel</button></div></div><div class="log-meta"><span id="logs-status"></span><div class="log-actions"><button class="button secondary small" id="logs-hot-reload" hidden>↻ Hot reload</button><button class="button secondary small" id="copy-logs">Copiar filtrado</button></div></div><div class="log-filters"><label class="search">⌕ <input id="logs-search" type="search" placeholder="Filtrar por texto…" aria-label="Filtrar logs por texto"></label><select id="logs-level" aria-label="Filtrar logs por tipo" title="Tipos identificados pelo texto das mensagens"><option value="all">Todas as mensagens</option><option value="error">Erros</option><option value="warning">Avisos</option><option value="info">Informações</option></select><button class="button secondary small" id="logs-reset">Limpar filtros</button><label class="log-follow"><input id="logs-follow" type="checkbox" checked>Acompanhar</label></div><div class="log-filter-summary"><span id="logs-count"></span><span>Tipos identificados pelo texto</span></div><pre id="logs-output" tabindex="0"></pre><div class="logs-bottom"><span id="logs-command"></span><span>Últimos 100 KB · atualização automática</span></div></section>
+<div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

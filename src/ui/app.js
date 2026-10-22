@@ -33,7 +33,6 @@ const activeStatuses = ['running', 'starting', 'stopping'];
 let projects = [], view = 'all', filter = 'all', query = '', sort = 'favorite', logsId = null, removeId = null, toastTimer;
 const gitStates = new Map(), gitBusy = new Set();
 let publishId = null, publishState = null, publishing = false;
-let visibleLogText = '';
 const reloadBusy = new Set();
 
 function fillIcons(root = document) { root.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); }); }
@@ -102,26 +101,14 @@ function showForm(project) {
   $('#project-dialog').showModal();
   form.elements.name.focus();
 }
-function updateLogs() {
-  if (!logsId || !$('#logs-dialog').open) return;
-  const project = projects.find(p => p.id === logsId);
-  if (!project) return;
-  $('#logs-title').textContent = project.name;
-  $('#logs-status').innerHTML = statusHtml(project);
-  const output = $('#logs-output');
-  const atBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 50;
-  const result = window.orbitaLogs.filterLogs(project.logs, $('#logs-search').value, $('#logs-level').value);
-  visibleLogText = result.text;
-  const content = !result.total ? 'Os logs aparecem aqui quando você iniciar o projeto.' : !result.count ? 'Nenhuma linha corresponde aos filtros.' : result.text;
-  if (output.textContent !== content) output.textContent = content;
-  $('#logs-count').textContent = `${result.count} de ${result.total} linhas`;
-  $('#copy-logs').disabled = !result.count;
-  const reload = $('#logs-hot-reload');
-  reload.hidden = !project.hotReloadSupported;
-  reload.disabled = project.status !== 'running' || !project.hotReloadReady || reloadBusy.has(project.id);
-  if (atBottom && $('#logs-follow').checked) output.scrollTop = output.scrollHeight;
-  $('#logs-command').textContent = project.command;
-}
+function updateLogs() { logViewer.update(); }
+const logViewer = new window.OrbitaLogView({
+  getProject: () => projects.find(project => project.id === logsId),
+  isVisible: () => $('#logs-dialog').open,
+  onReload: id => reloadProject(id),
+  onNotify: notify
+});
+
 
 fillIcons();
 document.addEventListener('click', event => {
@@ -158,17 +145,27 @@ $('#project-grid').addEventListener('click', event => {
   if (action === 'git-pull') { safely(() => pullProject(project)); return; }
   if (action === 'git-publish') { safely(() => showPublish(project)); return; }
   if (action === 'edit') { showForm(project); return; }
-  if (action === 'logs') { if (logsId !== project.id) { $('#logs-search').value = ''; $('#logs-level').value = 'all'; } logsId = project.id; $('#logs-dialog').showModal(); updateLogs(); $('#logs-output').scrollTop = $('#logs-output').scrollHeight; return; }
+  if (action === 'logs') {
+    safely(async () => {
+      if (await window.orbita.focusLogs(project.id)) return;
+      if (logsId !== project.id) { $('#logs-search').value = ''; $('#logs-level').value = 'all'; }
+      logsId = project.id; $('#logs-dialog').showModal(); updateLogs(); $('#logs-output').scrollTop = $('#logs-output').scrollHeight;
+    });
+    return;
+  }
   if (action === 'remove') { removeId = project.id; $('#remove-text').textContent = `O cadastro de “${project.name}” será removido da sua lista.`; $('#remove-dialog').showModal(); return; }
   safely(() => window.orbita[action](project.id));
 });
 $('#confirm-remove').addEventListener('click', () => safely(async () => { await window.orbita.remove(removeId); $('#remove-dialog').close(); notify('Cadastro removido.'); }));
-$('#copy-logs').addEventListener('click', () => safely(async () => { await navigator.clipboard.writeText(visibleLogText); notify('Logs filtrados copiados.'); }));
-$('#logs-search').addEventListener('input', updateLogs);
-$('#logs-level').addEventListener('change', updateLogs);
-$('#logs-reset').addEventListener('click', () => { $('#logs-search').value = ''; $('#logs-level').value = 'all'; updateLogs(); });
-$('#logs-follow').addEventListener('change', () => { if ($('#logs-follow').checked) $('#logs-output').scrollTop = $('#logs-output').scrollHeight; });
-$('#logs-hot-reload').addEventListener('click', () => safely(() => reloadProject(logsId)));
+$('#detach-logs').addEventListener('click', () => safely(async () => {
+  await window.orbita.detachLogs(logsId, logViewer.state());
+  $('#logs-dialog').close();
+}));
+window.orbita.onLogsAttached(({ id, state }) => {
+  logsId = id;
+  if (!$('#logs-dialog').open) $('#logs-dialog').showModal();
+  logViewer.restore(state);
+});
 async function reloadProject(id) {
   if (reloadBusy.has(id)) return;
   reloadBusy.add(id); render();

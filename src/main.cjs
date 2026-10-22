@@ -14,14 +14,42 @@ const locked = app.requestSingleInstanceLock();
 if (!locked) app.quit();
 let win, manager, quitting = false;
 const entry = pathToFileURL(path.join(__dirname, 'ui/index.html')).href;
+const logsEntry = pathToFileURL(path.join(__dirname, 'ui/logs.html')).href;
+const logWindows = new Map();
 
-app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
+app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } else if (manager && !quitting) createWindow(); });
 
 function handler(name, callback) {
   ipcMain.handle('orbita:' + name, (event, ...args) => {
     if (!win || event.sender !== win.webContents || event.senderFrame.url !== entry) throw new Error('Origem inválida.');
     return callback(...args);
   });
+}
+
+function logHandler(name, callback) {
+  ipcMain.handle('orbita:' + name, (event, ...args) => {
+    const context = [...logWindows.values()].find(record => !record.window.isDestroyed() && record.window.webContents === event.sender);
+    if (!context || event.senderFrame.url !== logsEntry) throw new Error('Origem inválida.');
+    return callback(context, ...args);
+  });
+}
+
+async function detachLogs(id, state) {
+  const project = manager.get(id);
+  const existing = logWindows.get(id);
+  if (existing) { if (existing.window.isMinimized()) existing.window.restore(); existing.window.show(); existing.window.focus(); return; }
+  const window = new BrowserWindow({
+    title: `${project.name} — Logs · Órbita`, width: 960, height: 700, minWidth: 600, minHeight: 420,
+    backgroundColor: '#fcfbfe', show: false,
+    webPreferences: { preload: path.join(__dirname, 'logs-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: !smoke }
+  });
+  const record = { id, state, window };
+  logWindows.set(id, record);
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', event => event.preventDefault());
+  window.on('closed', () => { logWindows.delete(id); });
+  try { await window.loadURL(logsEntry); window.show(); window.focus(); }
+  catch (error) { window.destroy(); throw error; }
 }
 
 async function createWindow() {
@@ -47,7 +75,7 @@ async function createWindow() {
     width: 1380, height: 900, minWidth: 980, minHeight: 680,
     title: 'Órbita — seus projetos, em movimento', backgroundColor: '#f7f8fa',
     titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 22, y: 23 },
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true }
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: !smoke }
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', event => event.preventDefault());
@@ -113,19 +141,51 @@ async function createWindow() {
         if (document.querySelector('#logs-output').textContent !== 'ERROR sample-failure') throw Error('Filtro de erros incorreto');
         logSearch.value = 'SAMPLE'; logSearch.dispatchEvent(new Event('input'));
         if (document.querySelector('#logs-output').textContent !== 'ERROR sample-failure') throw Error('Busca de logs incorreta');
+        if (document.querySelector('#logs-output mark')?.textContent !== 'sample') throw Error('Marca-texto ausente na modal');
         logSearch.value = 'sem-resultado'; logSearch.dispatchEvent(new Event('input'));
         if (!document.querySelector('#copy-logs').disabled) throw Error('Cópia habilitada sem resultados');
         document.querySelector('#logs-reset').click();
         level.value = 'warning'; level.dispatchEvent(new Event('change'));
         if (document.querySelector('#logs-output').textContent !== 'WARNING deprecated-api') throw Error('Filtro de avisos incorreto');
         document.querySelector('#logs-reset').click();
+        if (document.querySelector('#logs-output mark')) throw Error('Marca-texto não foi removido ao limpar');
+        level.value = 'error'; level.dispatchEvent(new Event('change'));
+        logSearch.value = 'SAMPLE'; logSearch.dispatchEvent(new Event('input'));
+        document.querySelector('#logs-follow').checked = false;
+        document.querySelector('#detach-logs').click();
+        await waitFor(() => !document.querySelector('#logs-dialog').open);
         document.querySelector('#toast').hidden = true;
-        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
         return { title: document.title, cards: document.querySelectorAll('.project-card').length, bridge: typeof window.orbita.start };
       })()`);
       await new Promise(resolve => setTimeout(resolve, 250));
       const screenshotDir = app.isPackaged ? path.join(app.getPath('userData'), 'screenshots') : path.join(__dirname, '../screenshots');
       fs.mkdirSync(screenshotDir, { recursive: true });
+      const floating = logWindows.get(smokeFlutterProject.id)?.window;
+      if (!floating || floating.isModal() || floating.getParentWindow()) throw new Error('Janela de logs não é independente.');
+      floating.setBounds({ x: 120, y: 100, width: 820, height: 620 });
+      if (floating.getBounds().width !== 820 || floating.getBounds().height !== 620) throw new Error('Janela de logs não redimensionou.');
+      await floating.webContents.executeJavaScript(`(async () => {
+        const waitFor = async check => { const end = Date.now() + 8000; while (!check()) { if (Date.now() > end) throw Error('Janela destacada não carregou'); await new Promise(r => setTimeout(r, 30)); } };
+        await waitFor(() => document.querySelector('#logs-output mark')?.textContent === 'sample');
+        if (document.querySelector('#logs-search').value !== 'SAMPLE' || document.querySelector('#logs-level').value !== 'error' || document.querySelector('#logs-follow').checked) throw Error('Filtros não foram preservados ao destacar');
+        document.querySelector('#pin-logs').click();
+        await waitFor(() => document.querySelector('#pin-logs').getAttribute('aria-pressed') === 'true');
+      })()`);
+      if (!floating.isAlwaysOnTop()) throw new Error('Janela não foi fixada no topo.');
+      manager.log(smokeFlutterProject.id, '\nERROR sample-live-update <img src=x onerror=alert(1)>\n');
+      await floating.webContents.executeJavaScript(`(async () => {
+        const end = Date.now() + 8000;
+        while (!document.querySelector('#logs-output').textContent.includes('sample-live-update')) { if (Date.now() > end) throw Error('Logs não atualizaram na janela destacada'); await new Promise(r => setTimeout(r, 30)); }
+        if (document.querySelector('#logs-output img') || document.querySelectorAll('#logs-output mark').length !== 2) throw Error('Conteúdo dos logs não foi tratado como texto');
+      })()`);
+      await new Promise(resolve => setTimeout(resolve, 150));
+      fs.writeFileSync(path.join(screenshotDir, 'orbita-logs-destacados.png'), (await floating.webContents.capturePage()).toPNG());
+      await floating.webContents.executeJavaScript("document.querySelector('#attach-logs').click()");
+      await win.webContents.executeJavaScript(`(async () => {
+        const end = Date.now() + 8000;
+        while (!document.querySelector('#logs-dialog').open) { if (Date.now() > end) throw Error('Logs não voltaram ao painel'); await new Promise(r => setTimeout(r, 30)); }
+        if (document.querySelector('#logs-search').value !== 'SAMPLE' || document.querySelectorAll('#logs-output mark').length !== 2) throw Error('Estado não foi preservado ao voltar');
+      })()`);
       fs.writeFileSync(path.join(screenshotDir, 'orbita-logs.png'), (await win.webContents.capturePage()).toPNG());
       await win.webContents.executeJavaScript("document.querySelector('#logs-dialog').close()");
       await manager.stop(smokeFlutterProject.id);
@@ -134,6 +194,7 @@ async function createWindow() {
       fs.writeFileSync(path.join(screenshotDir, 'orbita.png'), (await win.webContents.capturePage()).toPNG());
       console.log('SMOKE_OK', JSON.stringify(result));
       console.log('RELOAD_LOG_UI_OK hot reload + text + severity + reset');
+      console.log('DETACHED_LOG_UI_OK independent window + resize + pin + live updates + highlighting + reattach');
       const published = require('node:child_process').execFileSync('/usr/bin/git', ['-C', path.join(smokeGitDir, 'remote.git'), 'show', 'main:app.txt'], { encoding: 'utf8' });
       if (published !== 'ui published') throw new Error('A publicação da interface não chegou ao remoto temporário.');
       fs.rmSync(smokeGitDir, { recursive: true, force: true });
@@ -147,7 +208,10 @@ if (locked) app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   try { manager = new ProjectManager(path.join(app.getPath('userData'), 'projects.json')); }
   catch (error) { dialog.showErrorBox('Não foi possível abrir seu catálogo', error.message); app.exit(1); return; }
-  manager.on('change', projects => { if (win && !win.isDestroyed()) win.webContents.send('projects', projects); });
+  manager.on('change', projects => {
+    if (win && !win.isDestroyed()) win.webContents.send('projects', projects);
+    for (const { id, window } of logWindows.values()) if (!window.isDestroyed()) window.webContents.send('log-project', projects.find(p => p.id === id) || null);
+  });
   const importIndex = process.argv.indexOf('--import-local');
   if (importIndex >= 0) {
     const file = process.argv[importIndex + 1];
@@ -163,6 +227,25 @@ if (locked) app.whenReady().then(async () => {
   handler('start', id => manager.start(id));
   handler('stop', id => manager.stop(id));
   handler('hotReload', id => manager.hotReload(id));
+  handler('detachLogs', (id, state) => detachLogs(id, state));
+  handler('focusLogs', id => {
+    const record = logWindows.get(id);
+    if (!record) return false;
+    if (record.window.isMinimized()) record.window.restore();
+    record.window.show(); record.window.focus(); return true;
+  });
+  logHandler('logsContext', record => ({ project: manager.list().find(p => p.id === record.id) || null, state: record.state }));
+  logHandler('logsHotReload', record => manager.hotReload(record.id));
+  logHandler('pinLogs', (record, pinned) => { record.window.setAlwaysOnTop(Boolean(pinned)); return record.window.isAlwaysOnTop(); });
+  logHandler('attachLogs', async (record, state) => {
+    if (quitting) throw new Error('O Órbita está encerrando.');
+    if (!win || win.isDestroyed()) await createWindow();
+    if (win.isMinimized()) win.restore();
+    win.show(); win.focus();
+    win.webContents.send('logs-attached', { id: record.id, state });
+    // Let the renderer receive the IPC response before closing its window.
+    setTimeout(() => { if (!record.window.isDestroyed()) record.window.close(); }, 50);
+  });
   handler('remove', id => manager.remove(id));
   handler('favorite', id => manager.favorite(id));
   handler('gitStatus', id => gitService.inspect(manager.get(id).path));
