@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const call = method => (...args) => ipcRenderer.invoke('orbita:' + method, ...args);
 contextBridge.exposeInMainWorld('orbita', {
+  platform: process.platform,
   list: call('list'), save: call('save'), start: call('start'), stop: call('stop'),
   hotReload: call('hotReload'),
   detachLogs: call('detachLogs'), focusLogs: call('focusLogs'),

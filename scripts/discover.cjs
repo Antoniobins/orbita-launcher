@@ -7,9 +7,10 @@ const ignored = new Set(['node_modules', '.git', '.dart_tool', 'build', 'dist', 
 const args = process.argv.slice(2);
 const output = args.shift();
 if (!output || !args.length) { console.error('Uso: node scripts/discover.cjs data/projects.json Coleção=/caminho/projetos [...]'); process.exit(1); }
-let flutter = 'flutter';
-try { flutter = execFileSync('/bin/zsh', ['-lc', 'command -v flutter'], { encoding: 'utf8' }).trim(); } catch {}
-const quote = text => "'" + text.replace(/'/g, "'\\''") + "'";
+const windows = process.platform === 'win32';
+let flutter = windows ? 'flutter.bat' : 'flutter';
+if (!windows) { try { flutter = execFileSync('/bin/zsh', ['-lc', 'command -v flutter'], { encoding: 'utf8' }).trim(); } catch {} }
+const quote = text => windows ? '"' + text + '"' : "'" + text.replace(/'/g, "'\\''") + "'";
 const projects = fs.existsSync(output) ? JSON.parse(fs.readFileSync(output, 'utf8')) : [];
 let port = 8300;
 const usedPorts = new Set(projects.filter(p => p.url).map(p => new URL(p.url).port));
@@ -30,8 +31,8 @@ function visit(dir, group, depth = 0) {
       command = `${quote(flutter)} run -d chrome --web-port=${currentPort}`;
       url = `http://localhost:${currentPort}`;
     } else {
-      const wrapper = entries.some(e => e.name === 'mvnw') && fs.existsSync(path.join(dir, '.mvn/wrapper/maven-wrapper.properties'));
-      command = `${wrapper ? './mvnw' : 'mvn'} spring-boot:run`;
+      const wrapper = entries.some(e => e.name === (windows ? 'mvnw.cmd' : 'mvnw')) && fs.existsSync(path.join(dir, '.mvn/wrapper/maven-wrapper.properties'));
+      command = `${wrapper ? (windows ? '.\\mvnw.cmd' : './mvnw') : 'mvn'} spring-boot:run`;
       // Keep the service's existing port/configuration. Don't rewrite backend settings.
       const candidates = ['src/main/resources/application.properties', 'src/main/resources/application.yml', 'src/main/resources/application.yaml'];
       for (const candidate of candidates) {

@@ -1,6 +1,32 @@
-# Órbita
+# Órbita · beta
 
-Um aplicativo desktop para organizar e rodar projetos locais com um clique. Construído com Electron, JavaScript e CSS, com interface em português.
+Seu centro de comando para projetos locais. Organize suas pastas, execute seus comandos e acompanhe os logs em uma interface desktop em português.
+
+[Baixar a beta](https://github.com/Antoniobins/orbita-launcher/releases) · [Reportar problema](https://github.com/Antoniobins/orbita-launcher/issues) · [Validação automática](https://github.com/Antoniobins/orbita-launcher/actions)
+
+![Painel do Órbita com projetos de demonstração](docs/images/orbita.png)
+
+## Instalar e abrir
+
+A primeira beta pública oferece um **ZIP portátil para Windows x64**. Baixe o ZIP nas Releases, extraia a pasta inteira e abra **Orbita.exe**. Preserve os outros arquivos ao lado do executável. Não precisa instalar Node.js para abrir o pacote; seus projetos continuam precisando das ferramentas que usam.
+
+Os pacotes desta beta não têm assinatura digital. O Windows pode exibir avisos ao abrir. Confira a origem do download e o SHA-256 disponibilizado junto ao ZIP. No PowerShell:
+
+```powershell
+Get-FileHash .\Orbita-1.4.0-beta.1-win32-x64.zip -Algorithm SHA256
+```
+
+**macOS:** uso experimental pelo código-fonte; há validação automática e empacotamento no workflow. Esta beta não promete instalador assinado ou notarizado para Mac. **Linux:** ainda não suportado.
+
+A beta foi testada por automação no ambiente de desenvolvimento; não representa validação em toda combinação de sistema e ferramentas. Consulte as execuções do workflow para os resultados de cada plataforma.
+
+## Começar
+
+1. Clique em **Novo projeto** e escolha a pasta.
+2. Informe o comando que você usa no terminal e, opcionalmente, a URL local.
+3. Salve e clique em **Iniciar**. Acompanhe a compilação nos logs.
+
+O Órbita não instala dependências dos projetos. Git é necessário para os botões de branch, pull e publicação; Flutter, Java, npm e outras ferramentas precisam estar disponíveis no PATH quando usadas pelo comando.
 
 ## O que faz
 
@@ -14,28 +40,29 @@ Um aplicativo desktop para organizar e rodar projetos locais com um clique. Cons
 - Encerramento dos processos iniciados pelo app ao sair.
 - Catálogo persistido apenas no computador, sem conta ou servidor.
 
-## Rodar no macOS
+## Rodar pelo código-fonte
 
-Requisitos: Node.js 22 ou superior e as ferramentas exigidas pelos seus projetos (Flutter, Java, npm etc.).
+Requisitos: Node.js 22.12 ou superior, Git e uma sessão gráfica no Windows ou macOS.
 
 ```sh
+git clone https://github.com/Antoniobins/orbita-launcher.git
+cd orbita-launcher
 npm ci
 npm start
 ```
 
-Para gerar o aplicativo:
+Para gerar um pacote no sistema atual:
 
 ```sh
 npm run package
+npm run archive
 ```
 
-Abra `dist/v1.3.1/Orbita-darwin-arm64/Orbita.app` em um Mac Apple Silicon; em um Mac Intel, o diretório termina em `x64`. O aplicativo gerado localmente não tem assinatura de distribuição ou notarização da Apple.
-
-Para abrir uma atualização, feche a versão anterior do Órbita quando terminar de executar seus projetos. A nova versão reaproveita o catálogo local existente.
+Os arquivos ficam em `dist/v1.4.0-beta.1/`. No Windows, extraia o ZIP e abra `Orbita.exe`; no macOS, o pacote contém `Orbita.app`. O build inclui apenas código, assets e documentação permitidos, sem catálogo pessoal ou histórico Git. Não há atualização automática: feche a versão anterior antes de abrir outra. O catálogo local é reaproveitado.
 
 ## Cadastrar projetos
 
-Clique em **Novo projeto**, escolha a pasta e informe o comando que você usaria no terminal. O comando roda em um shell de login `zsh`, dentro daquela pasta. O Órbita não instala dependências dos projetos automaticamente.
+Clique em **Novo projeto**, escolha a pasta e informe o comando que você usaria no terminal. O comando roda dentro da pasta escolhida: `cmd.exe` no Windows e shell de login `zsh` no macOS. O Órbita não instala dependências dos projetos automaticamente.
 
 Exemplos:
 
@@ -47,7 +74,7 @@ Exemplos:
 
 Use uma porta diferente para cada serviço que deseja executar simultaneamente. O status **Em execução** indica que o processo está ativo; a aplicação pode ainda estar compilando. Consulte os logs para verificar quando está pronta.
 
-O botão do editor usa o protocolo `vscode://`, registrado pela instalação do VS Code. `⌘ N` abre o cadastro e `⌘ K` foca a busca.
+O botão do editor usa o protocolo `vscode://`, registrado pela instalação do VS Code. `Ctrl+N` / `⌘ N` abre o cadastro e `Ctrl+K` / `⌘ K` foca a busca.
 
 ## Hot reload e filtros de logs
 
@@ -80,7 +107,7 @@ npm start -- --import-local data/projects.json
 
 A descoberta ignora dependências, builds e worktrees de agentes. Revise os comandos sugeridos para backends, que podem depender de banco de dados e configuração própria. Importações repetidas preservam cadastros que já usam a mesma pasta.
 
-Os cadastros ficam no diretório `userData` do Electron, normalmente `~/Library/Application Support/Órbita/projects.json` no macOS. Para backup, copie esse arquivo com o app fechado. A pasta `data/`, os logs e os cadastros pessoais não são versionados. O repositório contém apenas a ferramenta: não contém código nem cadastros dos projetos gerenciados.
+Os cadastros ficam no diretório `userData` do Electron, em `%APPDATA%\Órbita\projects.json` no Windows e `~/Library/Application Support/Órbita/projects.json` no macOS. Para backup, copie esse arquivo com o app fechado. A pasta `data/`, os logs e os cadastros pessoais não são versionados. O repositório contém apenas a ferramenta: não contém código nem cadastros dos projetos gerenciados.
 
 ## Validação
 
@@ -91,4 +118,19 @@ npm run smoke
 
 Os testes verificam persistência, importação, execução, hot reload, filtros e marca-texto dos logs, conflitos de porta, Git, falhas e encerramento da árvore de processos. O smoke test verifica na interface cadastro, favorito, execução, hot reload, filtros, parada, busca, publicação Git, pull e remoção de projetos temporários. Também verifica destacar, redimensionar, fixar e recolher a janela dos logs, além das atualizações em tempo real e preservação dos filtros. Salva capturas locais em `screenshots/`.
 
-O aplicativo foi preparado para macOS. Os processos são executados em grupos próprios; serviços que deliberadamente se desacoplam do processo original (por exemplo, `docker compose up -d`) têm seu ciclo de vida gerenciado pela ferramenta correspondente.
+
+## Limitações da beta
+
+- Pacotes sem assinatura digital e sem notarização; sem atualização automática.
+- macOS experimental; Linux sem suporte.
+- O status **Em execução** indica processo ativo; consulte os logs para saber se o serviço está pronto.
+- Comandos são executados com as permissões do usuário. Importe somente catálogos confiáveis e não execute como administrador.
+- Processos que se desacoplam, como `docker compose up -d`, devem ser gerenciados pela ferramenta correspondente.
+- Hot reload depende da saída e do modo debug do Flutter; as ferramentas dos projetos podem exigir configuração própria.
+- Se uma pasta redirecionada impedir rename, o catálogo anterior é preservado em `projects.json.bak` antes da cópia. Essa alternativa não tem a atomicidade de rename; faça backups com o aplicativo fechado.
+
+![Logs destacados com filtros e marca-texto](docs/images/orbita-logs-destacados.png)
+
+## Contribuir e licença
+
+Veja [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) e [CHANGELOG.md](CHANGELOG.md). Código sob [licença MIT](LICENSE).

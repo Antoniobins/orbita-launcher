@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { GitService, parseChanges } = require('../src/git.cjs');
-const git = (cwd, ...args) => execFileSync('/usr/bin/git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+const git = (cwd, ...args) => execFileSync(process.platform === 'win32' ? 'git.exe' : '/usr/bin/git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }).trim();
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbita-git-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -88,12 +88,15 @@ test('Git preserva o destino de tracking configurado e publica commits já feito
 test('Git publica renomeação e trata pathspecs como nomes literais', async t => {
   const { local, remote, service } = fixture(t);
   git(local, 'mv', 'app.txt', 'renomeado.txt');
-  fs.writeFileSync(path.join(local, ':(glob)*.txt'), 'literal');
+  const literalName = process.platform === 'win32' ? '[literal].txt' : ':(glob)*.txt';
+  fs.writeFileSync(path.join(local, literalName), 'literal');
+  fs.writeFileSync(path.join(local, 'l.txt'), 'não selecionado');
   const state = await service.inspect(local);
-  await service.run(local, 'publish', input(state, ['renomeado.txt', ':(glob)*.txt'], 'rename and literal'));
+  await service.run(local, 'publish', input(state, ['renomeado.txt', literalName], 'rename and literal'));
   assert.equal(git(remote, 'show', 'main:renomeado.txt'), 'original');
-  assert.equal(git(remote, 'show', 'main::(glob)*.txt'), 'literal');
+  assert.equal(git(remote, 'show', `main:${literalName}`), 'literal');
   assert.throws(() => git(remote, 'show', 'main:app.txt'));
+  assert.throws(() => git(remote, 'show', 'main:l.txt'));
 });
 test('Git reconhece pasta sem repositório e HEAD destacado', async t => {
   const { dir, local, service } = fixture(t);

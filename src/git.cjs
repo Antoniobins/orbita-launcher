@@ -3,9 +3,9 @@ const { execFile } = require('node:child_process');
 
 function git(cwd, args) {
   return new Promise((resolve, reject) => {
-    execFile('/usr/bin/git', ['--literal-pathspecs', '-C', cwd, ...args], {
-      encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
-      env: { ...process.env, PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin`, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true', GIT_SSH_COMMAND: 'ssh -o BatchMode=yes', LC_ALL: 'C' }
+    execFile(process.platform === 'win32' ? 'git.exe' : '/usr/bin/git', ['--literal-pathspecs', '-C', cwd, ...args], {
+      encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024, windowsHide: true,
+      env: { ...process.env, ...(process.platform !== 'win32' ? { PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin` } : {}), GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true', GIT_SSH_COMMAND: 'ssh -o BatchMode=yes', LC_ALL: 'C' }
     }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
       let detail = (stderr || stdout || error.message).trim().replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/g, '$1[credencial]@');

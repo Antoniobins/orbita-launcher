@@ -22,6 +22,7 @@ for angle, color in [(-32, '#f5edff'), (35, '#c6b5f1'), (90, '#a893e5')]:
 draw.ellipse((438, 438, 586, 586), fill='#ffffff')
 draw.ellipse((739, 300, 793, 354), fill='#ffffff')
 image.save(out / 'icon.png')
+image.save(out / 'icon.ico', sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 # Pillow writes the multi-resolution icns container directly.
 image.save(out / 'icon.icns')
 print('Icon generated in assets/')

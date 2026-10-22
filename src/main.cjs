@@ -6,6 +6,9 @@ const { pathToFileURL } = require('node:url');
 const { ProjectManager } = require('./projects.cjs');
 const { GitService } = require('./git.cjs');
 const gitService = new GitService();
+const windows = process.platform === 'win32';
+const gitBinary = windows ? 'git.exe' : '/usr/bin/git';
+const quoteCommandPath = text => windows ? '"' + text + '"' : "'" + text.replace(/'/g, "'\\''") + "'";
 
 const smoke = process.argv.includes('--smoke-test');
 if (smoke) app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'orbita-smoke-')));
@@ -53,11 +56,11 @@ async function detachLogs(id, state) {
 }
 
 async function createWindow() {
-  let smokeGitDir, smokeGitProject, smokeFlutterProject;
+  let smokeGitDir, smokeGitProject, smokeFlutterProject, smokeCommand;
   if (smoke) {
     smokeGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbita-ui-git-'));
     const local = path.join(smokeGitDir, 'local'), remote = path.join(smokeGitDir, 'remote.git');
-    const run = (cwd, args) => require('node:child_process').execFileSync('/usr/bin/git', ['-C', cwd, ...args], { stdio: 'pipe' });
+    const run = (cwd, args) => require('node:child_process').execFileSync(gitBinary, ['-C', cwd, ...args], { stdio: 'pipe', windowsHide: true });
     run(smokeGitDir, ['init', '--bare', '--initial-branch=main', remote]);
     run(smokeGitDir, ['clone', remote, local]);
     run(local, ['config', 'user.name', 'Orbita UI Test']); run(local, ['config', 'user.email', 'orbita@example.invalid']);
@@ -68,13 +71,17 @@ async function createWindow() {
     const flutterDir = path.join(smokeGitDir, 'flutter-app');
     fs.mkdirSync(flutterDir);
     fs.writeFileSync(path.join(flutterDir, 'pubspec.yaml'), 'name: smoke_flutter\n');
-    fs.writeFileSync(path.join(flutterDir, 'flutter'), '#!/bin/sh\nprintf "r Hot reload.\\nStarting application from main method in: fixture\\nINFO render-ready\\nWARNING deprecated-api\\nERROR sample-failure\\n"\nwhile IFS= read -r command; do if [ "$command" = r ]; then printf "Reloaded fixture successfully\\n"; fi; done\n', { mode: 0o755 });
-    smokeFlutterProject = manager.save({ name: 'Orbita Flutter UI Test', path: flutterDir, group: 'Testes', command: `'${flutterDir.replace(/'/g, "'\\''")}/flutter' run -d chrome` });
+    fs.writeFileSync(path.join(flutterDir, 'flutter-fixture.cjs'), "console.log('r Hot reload.\\nStarting application from main method in: fixture\\nINFO render-ready\\nWARNING deprecated-api\\nERROR sample-failure'); process.stdin.setEncoding('utf8'); process.stdin.on('data', value => { if (value.trim() === 'r') console.log('Reloaded fixture successfully'); });");
+    const flutterFile = path.join(flutterDir, windows ? 'flutter.bat' : 'flutter');
+    fs.writeFileSync(flutterFile, windows ? '@echo off\r\nnode "%~dp0flutter-fixture.cjs"\r\n' : '#!/bin/sh\nexec node "$(dirname "$0")/flutter-fixture.cjs"\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(smokeGitDir, 'runner.cjs'), "console.log('orbita-ui-ready'); setInterval(() => console.log('orbita-ui-ready'), 1000);");
+    smokeCommand = 'node ' + quoteCommandPath(path.join(smokeGitDir, 'runner.cjs'));
+    smokeFlutterProject = manager.save({ name: 'Orbita Flutter UI Test', path: flutterDir, group: 'Testes', command: `${quoteCommandPath(flutterFile)} run -d chrome` });
   }
   win = new BrowserWindow({
     width: 1380, height: 900, minWidth: 980, minHeight: 680,
     title: 'Órbita — seus projetos, em movimento', backgroundColor: '#f7f8fa',
-    titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 22, y: 23 },
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 22, y: 23 } } : {}),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: !smoke }
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -85,7 +92,7 @@ async function createWindow() {
     try {
       const result = await win.webContents.executeJavaScript(`(async () => {
         await new Promise(r => setTimeout(r, 350));
-        const waitFor = async check => { const until = Date.now() + 8000; while (!check()) { if (Date.now() > until) throw Error('Tempo esgotado na interface'); await new Promise(r => setTimeout(r, 40)); } };
+        const waitFor = async check => { const until = Date.now() + 60000; while (!check()) { if (Date.now() > until) throw Error('Tempo esgotado na interface'); await new Promise(r => setTimeout(r, 40)); } };
         const gitCard = () => [...document.querySelectorAll('.project-card')].find(el => el.querySelector('h3').textContent === 'Orbita Git UI Test');
         await refreshGit(${JSON.stringify(smokeGitProject?.id)});
         await waitFor(() => gitCard() && !gitCard().querySelector('[data-action="git-publish"]').disabled);
@@ -108,7 +115,7 @@ async function createWindow() {
         form.elements.name.value = 'Orbita UI Test';
         form.elements.group.value = 'Testes';
         form.elements.path.value = ${JSON.stringify(os.tmpdir())};
-        form.elements.command.value = 'while true; do echo orbita-ui-ready; sleep 1; done';
+        form.elements.command.value = ${JSON.stringify(smokeCommand)};
         form.requestSubmit();
         await waitFor(() => !document.querySelector('#project-dialog').open);
         const findCard = () => [...document.querySelectorAll('.project-card')].find(el => el.querySelector('h3').textContent === 'Orbita UI Test');
@@ -179,7 +186,11 @@ async function createWindow() {
         if (document.querySelector('#logs-output img') || document.querySelectorAll('#logs-output mark').length !== 2) throw Error('Conteúdo dos logs não foi tratado como texto');
       })()`);
       await new Promise(resolve => setTimeout(resolve, 150));
+      // Documentation uses fictional logs and a generic command, never local paths.
+      await floating.webContents.executeJavaScript(`window.smokeSnapshot = { project, state: viewer.state() }; project = { ...project, name: 'Painel Flutter · demonstração', command: 'flutter run -d chrome --web-port=8300', logs: 'INFO Aplicativo iniciado no navegador.\\nINFO Hot reload disponível.\\nINFO Hot reload concluído em 320 ms.\\nINFO Aguardando alterações.' }; viewer.restore({ query: 'reload', level: 'all', follow: true });`);
+      await new Promise(resolve => setTimeout(resolve, 150));
       fs.writeFileSync(path.join(screenshotDir, 'orbita-logs-destacados.png'), (await floating.webContents.capturePage()).toPNG());
+      await floating.webContents.executeJavaScript('project = window.smokeSnapshot.project; viewer.restore(window.smokeSnapshot.state); delete window.smokeSnapshot;');
       await floating.webContents.executeJavaScript("document.querySelector('#attach-logs').click()");
       await win.webContents.executeJavaScript(`(async () => {
         const end = Date.now() + 8000;
@@ -190,17 +201,25 @@ async function createWindow() {
       await win.webContents.executeJavaScript("document.querySelector('#logs-dialog').close()");
       await manager.stop(smokeFlutterProject.id);
       manager.remove(smokeFlutterProject.id);
+      for (const [name, group, command, url, description, favorite] of [
+        ['Atlas Web', 'Interfaces', 'npm run dev', 'http://localhost:5173', 'Interface web e componentes.', true],
+        ['API de tarefas', 'Serviços', 'mvn spring-boot:run', 'http://localhost:8080', 'Serviço local para organizar tarefas.', true],
+        ['Painel Flutter', 'Aplicativos', 'flutter run -d chrome --web-port=8300', 'http://localhost:8300', 'Aplicativo Flutter em modo debug.', false],
+        ['Portal de estudos', 'Interfaces', 'npm start', 'http://localhost:3000', 'Experimentos e ideias em desenvolvimento.', false]
+      ]) manager.save({ name, group, path: os.tmpdir(), command, url, description, favorite });
+      win.webContents.setZoomFactor(0.85);
       await new Promise(resolve => setTimeout(resolve, 150));
       fs.writeFileSync(path.join(screenshotDir, 'orbita.png'), (await win.webContents.capturePage()).toPNG());
       console.log('SMOKE_OK', JSON.stringify(result));
       console.log('RELOAD_LOG_UI_OK hot reload + text + severity + reset');
       console.log('DETACHED_LOG_UI_OK independent window + resize + pin + live updates + highlighting + reattach');
-      const published = require('node:child_process').execFileSync('/usr/bin/git', ['-C', path.join(smokeGitDir, 'remote.git'), 'show', 'main:app.txt'], { encoding: 'utf8' });
+      const published = require('node:child_process').execFileSync(gitBinary, ['-C', path.join(smokeGitDir, 'remote.git'), 'show', 'main:app.txt'], { encoding: 'utf8', windowsHide: true });
       if (published !== 'ui published') throw new Error('A publicação da interface não chegou ao remoto temporário.');
-      fs.rmSync(smokeGitDir, { recursive: true, force: true });
+      await gitService.shutdown();
+      await fs.promises.rm(smokeGitDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
       console.log('GIT_UI_OK publish + pull via temporary local remote');
       app.quit();
-    } catch (error) { console.error(error); app.exit(1); }
+    } catch (error) { console.error(error); await manager.shutdown(); app.exit(1); }
   }
 }
 
@@ -268,7 +287,7 @@ if (locked) app.whenReady().then(async () => {
   });
   handler('editor', async id => {
     const project = manager.get(id);
-    const url = new URL('vscode://file' + project.path.split('/').map(encodeURIComponent).join('/'));
+    const url = new URL('vscode://file' + pathToFileURL(project.path).pathname);
     await shell.openExternal(url.href);
   });
   Menu.setApplicationMenu(Menu.buildFromTemplate([

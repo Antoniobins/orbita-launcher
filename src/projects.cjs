@@ -2,9 +2,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const net = require('node:net');
-const { spawn } = require('node:child_process');
+const { spawn, execFile } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { EventEmitter } = require('node:events');
+const windows = process.platform === 'win32';
+function terminate(child, signal) {
+  if (!child.pid) return;
+  if (windows) {
+    execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, error => {
+      if (error) { try { child.kill(); } catch {} }
+    });
+  } else { try { process.kill(-child.pid, signal); } catch {} }
+}
 
 function validateProject(input) {
   const project = {};
@@ -56,7 +65,14 @@ class ProjectManager extends EventEmitter {
   persist() {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     fs.writeFileSync(this.file + '.tmp', JSON.stringify(this.projects, null, 2), { mode: 0o600 });
-    fs.renameSync(this.file + '.tmp', this.file);
+    try { fs.renameSync(this.file + '.tmp', this.file); }
+    catch (error) {
+      if (error.code !== 'EXDEV') throw error;
+      // Some redirected Windows folders cannot rename across their backing mounts.
+      if (fs.existsSync(this.file)) fs.copyFileSync(this.file, this.file + '.bak');
+      fs.copyFileSync(this.file + '.tmp', this.file);
+      fs.unlinkSync(this.file + '.tmp');
+    }
   }
   state(id) {
     return this.runtime.get(id) || { status: 'stopped', logs: '', startedAt: null, error: '' };
@@ -119,9 +135,9 @@ class ProjectManager extends EventEmitter {
         }
       }
       if (this.closing) throw new Error('O aplicativo está encerrando.');
-      const child = spawn('/bin/zsh', ['-lc', p.command], {
-        cwd: p.path, detached: true,
-        env: { ...process.env, TERM: 'dumb', NO_COLOR: '1', PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin` },
+      const child = spawn(windows ? (process.env.ComSpec || 'cmd.exe') : '/bin/zsh', windows ? ['/d', '/s', '/c', `"${p.command}"`] : ['-lc', p.command], {
+        cwd: p.path, detached: !windows, windowsHide: true, windowsVerbatimArguments: windows,
+        env: { ...process.env, TERM: 'dumb', NO_COLOR: '1', ...(!windows ? { PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin` } : {}) },
         stdio: [supportsHotReload(p) ? 'pipe' : 'ignore', 'pipe', 'pipe']
       });
       const record = { child, timer: null, done: null, supportsReload: supportsHotReload(p), webTarget: /(?:-d\s+|--device-id(?:=|\s+))(?:chrome|edge|web-server)\b/.test(p.command), lastReload: 0 };
@@ -139,7 +155,7 @@ class ProjectManager extends EventEmitter {
         finished = true;
         const stopping = this.state(id).status === 'stopping' || this.closing;
         // Shell commands may leave children alive after their parent exits.
-        try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+        if (!windows) terminate(child, 'SIGKILL');
         clearTimeout(record.timer);
         this.processes.delete(id);
         const failed = !stopping && (error || code !== 0);
@@ -171,9 +187,9 @@ class ProjectManager extends EventEmitter {
     if (!record) return;
     if (this.state(id).status === 'stopping') return record.done;
     this.update(id, { status: 'stopping' });
-    try { process.kill(-record.child.pid, 'SIGTERM'); } catch {}
+    terminate(record.child, 'SIGTERM');
     record.timer = setTimeout(() => {
-      try { process.kill(-record.child.pid, 'SIGKILL'); } catch {}
+      terminate(record.child, 'SIGKILL');
     }, this.killDelay);
     return record.done;
   }

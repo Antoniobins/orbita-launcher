@@ -27,6 +27,9 @@ const paths = {
 };
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.code}</svg>`;
 const $ = selector => document.querySelector(selector);
+if (window.orbita.platform !== 'darwin') {
+  document.querySelectorAll('kbd').forEach(el => { el.textContent = el.textContent.replace('⌘', 'Ctrl'); });
+}
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const statusLabels = { running: 'Em execução', starting: 'Iniciando…', stopping: 'Parando…', stopped: 'Parado', error: 'Precisa de atenção' };
 const activeStatuses = ['running', 'starting', 'stopping'];

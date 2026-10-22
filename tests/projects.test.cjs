@@ -5,12 +5,14 @@ const path = require('node:path');
 const os = require('node:os');
 const net = require('node:net');
 const { ProjectManager, supportsHotReload } = require('../src/projects.cjs');
-const quote = text => "'" + text.replace(/'/g, "'\\''") + "'";
+const windows = process.platform === 'win32';
+const quote = text => windows ? '"' + text + '"' : "'" + text.replace(/'/g, "'\\''") + "'";
 function fixture(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbita-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbita test-'));
   const manager = new ProjectManager(path.join(dir, 'projects.json'), { killDelay: 150 });
   t.after(async () => { await manager.shutdown(); fs.rmSync(dir, { recursive: true, force: true }); });
-  const project = manager.save({ name: 'Teste', path: dir, command: `${quote(process.execPath)} -e 'console.log("hello orbita");setInterval(()=>{},1000)'`, group: 'Testes' });
+  fs.writeFileSync(path.join(dir, 'fixture.cjs'), 'console.log("hello orbita");setInterval(()=>{},1000)');
+  const project = manager.save({ name: 'Teste', path: dir, command: `${quote(process.execPath)} fixture.cjs`, group: 'Testes' });
   return { manager, project, dir };
 }
 async function until(check) {
@@ -31,6 +33,15 @@ test('importa cadastros locais com identificadores preexistentes', t => {
   const saved = manager.save({ id: 'imported-local', name: 'Importado', group: 'Local', path: dir, command: 'echo teste' });
   assert.equal(saved.id, 'imported-local');
   assert.equal(new ProjectManager(manager.file).get(saved.id).name, 'Importado');
+});
+
+test('preserva catálogo e backup quando a pasta redirecionada impede rename', t => {
+  const { manager, project } = fixture(t);
+  t.mock.method(fs, 'renameSync', () => { throw Object.assign(new Error('redirected folder'), { code: 'EXDEV' }); });
+  manager.favorite(project.id);
+  assert.equal(new ProjectManager(manager.file).get(project.id).favorite, true);
+  assert.equal(JSON.parse(fs.readFileSync(manager.file + '.bak', 'utf8'))[0].favorite, false);
+  assert.equal(fs.existsSync(manager.file + '.tmp'), false);
 });
 test('inicia uma vez, captura logs e encerra o processo', async t => {
   const { manager, project } = fixture(t);
@@ -88,9 +99,10 @@ test('não sobrescreve um catálogo danificado', t => {
 test('hot reload envia r ao processo Flutter sem reiniciar o PID', async t => {
   const { manager, project, dir } = fixture(t);
   fs.writeFileSync(path.join(dir, 'pubspec.yaml'), 'name: fixture\n');
-  fs.writeFileSync(path.join(dir, 'flutter'), `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(path.join(dir, 'flutter-fixture.cjs'))}\n`, { mode: 0o755 });
+  const flutterFile = path.join(dir, windows ? 'flutter.bat' : 'flutter');
+  fs.writeFileSync(flutterFile, windows ? `@echo off\r\n${quote(process.execPath)} ${quote(path.join(dir, 'flutter-fixture.cjs'))}\r\n` : `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(path.join(dir, 'flutter-fixture.cjs'))}\n`, { mode: 0o755 });
   fs.writeFileSync(path.join(dir, 'flutter-fixture.cjs'), `console.log('r Hot reload.'); setTimeout(() => console.log('Starting application from main method in: fixture'), 400); process.stdin.setEncoding('utf8'); process.stdin.on('data', value => { if(value.trim()==='r') console.log('Reloaded fixture'); });`);
-  manager.save({ ...project, command: `${quote(path.join(dir, 'flutter'))} run -d chrome` });
+  manager.save({ ...project, command: `${quote(flutterFile)} run -d chrome` });
   await assert.rejects(manager.hotReload(project.id), /Inicie o projeto/);
   await manager.start(project.id);
   await until(() => manager.state(project.id).logs.includes('r Hot reload.'));
@@ -110,8 +122,9 @@ test('hot reload exige Flutter debug e aguarda inicialização', async t => {
   assert.equal(supportsHotReload({ ...project, command: 'flutter run --release' }), false);
   assert.equal(supportsHotReload({ ...project, command: 'flutter run --machine' }), false);
   await assert.rejects(manager.hotReload(project.id), /flutter run/);
-  fs.writeFileSync(path.join(dir, 'flutter'), '#!/bin/sh\nexec sleep 60\n', { mode: 0o755 });
-  manager.save({ ...project, command: `${quote(path.join(dir, 'flutter'))} run` });
+  const flutterFile = path.join(dir, windows ? 'flutter.bat' : 'flutter');
+  fs.writeFileSync(flutterFile, windows ? `@echo off\r\n${quote(process.execPath)} fixture.cjs\r\n` : '#!/bin/sh\nexec sleep 60\n', { mode: 0o755 });
+  manager.save({ ...project, command: `${quote(flutterFile)} run` });
   await manager.start(project.id);
   await until(() => manager.state(project.id).status === 'running');
   await assert.rejects(manager.hotReload(project.id), /terminar a inicialização/);
