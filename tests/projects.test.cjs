@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const net = require('node:net');
-const { ProjectManager } = require('../src/projects.cjs');
+const { ProjectManager, supportsHotReload } = require('../src/projects.cjs');
 const quote = text => "'" + text.replace(/'/g, "'\\''") + "'";
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbita-test-'));
@@ -84,4 +84,35 @@ test('não sobrescreve um catálogo danificado', t => {
   fs.writeFileSync(manager.file, 'broken');
   assert.throws(() => new ProjectManager(manager.file));
   assert.equal(fs.readFileSync(manager.file, 'utf8'), 'broken');
+});
+test('hot reload envia r ao processo Flutter sem reiniciar o PID', async t => {
+  const { manager, project, dir } = fixture(t);
+  fs.writeFileSync(path.join(dir, 'pubspec.yaml'), 'name: fixture\n');
+  fs.writeFileSync(path.join(dir, 'flutter'), `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(path.join(dir, 'flutter-fixture.cjs'))}\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, 'flutter-fixture.cjs'), `console.log('r Hot reload.'); setTimeout(() => console.log('Starting application from main method in: fixture'), 400); process.stdin.setEncoding('utf8'); process.stdin.on('data', value => { if(value.trim()==='r') console.log('Reloaded fixture'); });`);
+  manager.save({ ...project, command: `${quote(path.join(dir, 'flutter'))} run -d chrome` });
+  await assert.rejects(manager.hotReload(project.id), /Inicie o projeto/);
+  await manager.start(project.id);
+  await until(() => manager.state(project.id).logs.includes('r Hot reload.'));
+  assert.equal(manager.state(project.id).hotReloadReady, false);
+  await until(() => manager.state(project.id).hotReloadReady && manager.state(project.id).status === 'running');
+  const pid = manager.processes.get(project.id).child.pid;
+  await manager.hotReload(project.id);
+  await until(() => manager.state(project.id).logs.includes('Reloaded fixture'));
+  assert.equal(manager.processes.get(project.id).child.pid, pid);
+  await assert.rejects(manager.hotReload(project.id), /Aguarde um instante/);
+  await manager.stop(project.id);
+  assert.equal(manager.state(project.id).hotReloadReady, false);
+});
+test('hot reload exige Flutter debug e aguarda inicialização', async t => {
+  const { manager, project, dir } = fixture(t);
+  fs.writeFileSync(path.join(dir, 'pubspec.yaml'), 'name: fixture\n');
+  assert.equal(supportsHotReload({ ...project, command: 'flutter run --release' }), false);
+  assert.equal(supportsHotReload({ ...project, command: 'flutter run --machine' }), false);
+  await assert.rejects(manager.hotReload(project.id), /flutter run/);
+  fs.writeFileSync(path.join(dir, 'flutter'), '#!/bin/sh\nexec sleep 60\n', { mode: 0o755 });
+  manager.save({ ...project, command: `${quote(path.join(dir, 'flutter'))} run` });
+  await manager.start(project.id);
+  await until(() => manager.state(project.id).status === 'running');
+  await assert.rejects(manager.hotReload(project.id), /terminar a inicialização/);
 });

@@ -25,7 +25,7 @@ function handler(name, callback) {
 }
 
 async function createWindow() {
-  let smokeGitDir, smokeGitProject;
+  let smokeGitDir, smokeGitProject, smokeFlutterProject;
   if (smoke) {
     smokeGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbita-ui-git-'));
     const local = path.join(smokeGitDir, 'local'), remote = path.join(smokeGitDir, 'remote.git');
@@ -37,6 +37,11 @@ async function createWindow() {
     run(local, ['add', '.']); run(local, ['commit', '-m', 'initial']); run(local, ['push', '-u', 'origin', 'main']);
     fs.writeFileSync(path.join(local, 'app.txt'), 'ui published');
     smokeGitProject = manager.save({ name: 'Orbita Git UI Test', path: local, group: 'Testes', command: 'echo teste' });
+    const flutterDir = path.join(smokeGitDir, 'flutter-app');
+    fs.mkdirSync(flutterDir);
+    fs.writeFileSync(path.join(flutterDir, 'pubspec.yaml'), 'name: smoke_flutter\n');
+    fs.writeFileSync(path.join(flutterDir, 'flutter'), '#!/bin/sh\nprintf "r Hot reload.\\nStarting application from main method in: fixture\\nINFO render-ready\\nWARNING deprecated-api\\nERROR sample-failure\\n"\nwhile IFS= read -r command; do if [ "$command" = r ]; then printf "Reloaded fixture successfully\\n"; fi; done\n', { mode: 0o755 });
+    smokeFlutterProject = manager.save({ name: 'Orbita Flutter UI Test', path: flutterDir, group: 'Testes', command: `'${flutterDir.replace(/'/g, "'\\''")}/flutter' run -d chrome` });
   }
   win = new BrowserWindow({
     width: 1380, height: 900, minWidth: 980, minHeight: 680,
@@ -96,6 +101,24 @@ async function createWindow() {
         findCard().querySelector('[data-action="remove"]').click();
         document.querySelector('#confirm-remove').click();
         await waitFor(() => !findCard());
+        const flutterCard = () => [...document.querySelectorAll('.project-card')].find(el => el.querySelector('h3').textContent === 'Orbita Flutter UI Test');
+        if (!flutterCard().querySelector('[data-action="hotReload"]').disabled) throw Error('Reload habilitado antes de iniciar');
+        flutterCard().querySelector('[data-action="start"]').click();
+        await waitFor(() => !flutterCard().querySelector('[data-action="hotReload"]').disabled);
+        flutterCard().querySelector('[data-action="hotReload"]').click();
+        flutterCard().querySelector('[data-action="logs"]').click();
+        await waitFor(() => document.querySelector('#logs-output').textContent.includes('Reloaded fixture successfully'));
+        const level = document.querySelector('#logs-level'), logSearch = document.querySelector('#logs-search');
+        level.value = 'error'; level.dispatchEvent(new Event('change'));
+        if (document.querySelector('#logs-output').textContent !== 'ERROR sample-failure') throw Error('Filtro de erros incorreto');
+        logSearch.value = 'SAMPLE'; logSearch.dispatchEvent(new Event('input'));
+        if (document.querySelector('#logs-output').textContent !== 'ERROR sample-failure') throw Error('Busca de logs incorreta');
+        logSearch.value = 'sem-resultado'; logSearch.dispatchEvent(new Event('input'));
+        if (!document.querySelector('#copy-logs').disabled) throw Error('Cópia habilitada sem resultados');
+        document.querySelector('#logs-reset').click();
+        level.value = 'warning'; level.dispatchEvent(new Event('change'));
+        if (document.querySelector('#logs-output').textContent !== 'WARNING deprecated-api') throw Error('Filtro de avisos incorreto');
+        document.querySelector('#logs-reset').click();
         document.querySelector('#toast').hidden = true;
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
         return { title: document.title, cards: document.querySelectorAll('.project-card').length, bridge: typeof window.orbita.start };
@@ -103,8 +126,14 @@ async function createWindow() {
       await new Promise(resolve => setTimeout(resolve, 250));
       const screenshotDir = app.isPackaged ? path.join(app.getPath('userData'), 'screenshots') : path.join(__dirname, '../screenshots');
       fs.mkdirSync(screenshotDir, { recursive: true });
+      fs.writeFileSync(path.join(screenshotDir, 'orbita-logs.png'), (await win.webContents.capturePage()).toPNG());
+      await win.webContents.executeJavaScript("document.querySelector('#logs-dialog').close()");
+      await manager.stop(smokeFlutterProject.id);
+      manager.remove(smokeFlutterProject.id);
+      await new Promise(resolve => setTimeout(resolve, 150));
       fs.writeFileSync(path.join(screenshotDir, 'orbita.png'), (await win.webContents.capturePage()).toPNG());
       console.log('SMOKE_OK', JSON.stringify(result));
+      console.log('RELOAD_LOG_UI_OK hot reload + text + severity + reset');
       const published = require('node:child_process').execFileSync('/usr/bin/git', ['-C', path.join(smokeGitDir, 'remote.git'), 'show', 'main:app.txt'], { encoding: 'utf8' });
       if (published !== 'ui published') throw new Error('A publicação da interface não chegou ao remoto temporário.');
       fs.rmSync(smokeGitDir, { recursive: true, force: true });
@@ -133,6 +162,7 @@ if (locked) app.whenReady().then(async () => {
   handler('save', input => manager.save(input));
   handler('start', id => manager.start(id));
   handler('stop', id => manager.stop(id));
+  handler('hotReload', id => manager.hotReload(id));
   handler('remove', id => manager.remove(id));
   handler('favorite', id => manager.favorite(id));
   handler('gitStatus', id => gitService.inspect(manager.get(id).path));

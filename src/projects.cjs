@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const net = require('node:net');
-const { spawn, execFile } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { EventEmitter } = require('node:events');
 
@@ -33,6 +33,12 @@ function portAvailable(port, host = '127.0.0.1') {
   });
 }
 
+function supportsHotReload(project) {
+  return fs.existsSync(path.join(project.path, 'pubspec.yaml')) &&
+    /\bflutter(?:\.bat)?['"]?\s+(?:--[^\s]+\s+)*run\b/.test(project.command) &&
+    !/--(?:release|profile|machine|no-hot)\b/.test(project.command);
+}
+
 class ProjectManager extends EventEmitter {
   constructor(file, options = {}) {
     super();
@@ -55,7 +61,7 @@ class ProjectManager extends EventEmitter {
   state(id) {
     return this.runtime.get(id) || { status: 'stopped', logs: '', startedAt: null, error: '' };
   }
-  list() { return this.projects.map(p => ({ ...p, ...this.state(p.id) })); }
+  list() { return this.projects.map(p => ({ ...p, hotReloadSupported: supportsHotReload(p), ...this.state(p.id) })); }
   get(id) {
     const p = this.projects.find(p => p.id === id);
     if (!p) throw new Error('Projeto não encontrado.');
@@ -68,7 +74,11 @@ class ProjectManager extends EventEmitter {
   log(id, chunk) {
     // Strip terminal escape sequences, cap retained output.
     const clean = String(chunk).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
-    this.update(id, { logs: (this.state(id).logs + clean).slice(-100000) });
+    const logs = (this.state(id).logs + clean).slice(-100000);
+    const record = this.processes.get(id);
+    const ready = record?.supportsReload && /(?:^|\n)r[ \t]+Hot reload\b/i.test(logs) &&
+      (!record.webTarget || /Starting application from main method in:/i.test(logs));
+    this.update(id, { logs, ...(ready ? { hotReloadReady: true } : {}) });
   }
   save(input) {
     if (input.id && this.projects.some(p => p.id === input.id) && ['running', 'starting', 'stopping'].includes(this.state(input.id).status)) {
@@ -99,7 +109,7 @@ class ProjectManager extends EventEmitter {
     const p = this.get(id);
     if (this.processes.has(id) || ['starting', 'stopping'].includes(this.state(id).status)) return;
     validateProject(p);
-    this.update(id, { status: 'starting', error: '', logs: '', startedAt: Date.now() });
+    this.update(id, { status: 'starting', error: '', logs: '', startedAt: Date.now(), hotReloadReady: false });
     try {
       if (p.url) {
         const url = new URL(p.url);
@@ -112,14 +122,16 @@ class ProjectManager extends EventEmitter {
       const child = spawn('/bin/zsh', ['-lc', p.command], {
         cwd: p.path, detached: true,
         env: { ...process.env, TERM: 'dumb', NO_COLOR: '1', PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin` },
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: [supportsHotReload(p) ? 'pipe' : 'ignore', 'pipe', 'pipe']
       });
-      const record = { child, timer: null, done: null };
+      const record = { child, timer: null, done: null, supportsReload: supportsHotReload(p), webTarget: /(?:-d\s+|--device-id(?:=|\s+))(?:chrome|edge|web-server)\b/.test(p.command), lastReload: 0 };
       record.done = new Promise(resolve => { record.resolve = resolve; });
       this.processes.set(id, record);
       this.log(id, `$ ${p.command}\n\n`);
+      child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
       child.stdout.on('data', chunk => this.log(id, chunk));
       child.stderr.on('data', chunk => this.log(id, chunk));
+      child.stdin?.on('error', error => this.log(id, `\nNão foi possível enviar comando ao Flutter: ${error.message}\n`));
       child.once('spawn', () => this.update(id, { status: 'running' }));
       let finished = false;
       const finish = (code, signal, error) => {
@@ -133,7 +145,7 @@ class ProjectManager extends EventEmitter {
         const failed = !stopping && (error || code !== 0);
         const message = error?.message || (failed ? `O comando encerrou (${signal || `código ${code}`}). Confira os logs.` : '');
         this.log(id, `\n${stopping ? '■ Projeto parado.' : failed ? '✕ ' + message : '✓ Comando concluído.'}\n`);
-        this.update(id, { status: failed ? 'error' : 'stopped', error: message, startedAt: null });
+        this.update(id, { status: failed ? 'error' : 'stopped', error: message, startedAt: null, hotReloadReady: false });
         record.resolve();
       };
       child.once('error', error => finish(null, null, error));
@@ -142,6 +154,17 @@ class ProjectManager extends EventEmitter {
       this.update(id, { status: 'error', error: error.message, logs: error.message + '\n', startedAt: null });
       throw error;
     }
+  }
+  async hotReload(id) {
+    const project = this.get(id), record = this.processes.get(id);
+    if (!supportsHotReload(project)) throw new Error('Hot reload está disponível para flutter run em modo debug.');
+    if (!record || this.state(id).status !== 'running') throw new Error('Inicie o projeto antes de usar hot reload.');
+    if (!this.state(id).hotReloadReady) throw new Error('Aguarde o Flutter terminar a inicialização e habilitar o hot reload nos logs.');
+    if (!record.child.stdin?.writable) throw new Error('O processo não está aceitando comandos. Pare e inicie o projeto novamente.');
+    if (Date.now() - record.lastReload < 1000) throw new Error('Aguarde um instante antes de solicitar outro hot reload.');
+    record.lastReload = Date.now();
+    await new Promise((resolve, reject) => record.child.stdin.write('r\n', error => error ? reject(error) : resolve()));
+    this.log(id, '\n↻ Hot reload solicitado. Acompanhe o resultado do Flutter abaixo.\n');
   }
   async stop(id) {
     const record = this.processes.get(id);
@@ -160,4 +183,4 @@ class ProjectManager extends EventEmitter {
     while (this.list().some(p => p.status === 'starting')) await new Promise(resolve => setTimeout(resolve, 20));
   }
 }
-module.exports = { ProjectManager, validateProject, portAvailable };
+module.exports = { ProjectManager, validateProject, portAvailable, supportsHotReload };

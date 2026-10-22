@@ -7,6 +7,7 @@ Um aplicativo desktop para organizar e rodar projetos locais com um clique. Cons
 - Cadastro de nome, pasta, comando, URL e coleção.
 - Botões para iniciar, parar, abrir no navegador, abrir no VS Code e revelar a pasta.
 - Logs em tempo real, favoritos, busca e filtros.
+- Hot reload para Flutter em debug e filtros de logs por texto e tipo.
 - Branch atual e botões para puxar atualizações e publicar commits.
 - Verificação de porta local ocupada antes da execução.
 - Encerramento dos processos iniciados pelo app ao sair.
@@ -27,7 +28,7 @@ Para gerar o aplicativo:
 npm run package
 ```
 
-Abra `dist/v1.1.0/Orbita-darwin-arm64/Orbita.app` em um Mac Apple Silicon; em um Mac Intel, o diretório termina em `x64`. O aplicativo gerado localmente não tem assinatura de distribuição ou notarização da Apple.
+Abra `dist/v1.2.0/Orbita-darwin-arm64/Orbita.app` em um Mac Apple Silicon; em um Mac Intel, o diretório termina em `x64`. O aplicativo gerado localmente não tem assinatura de distribuição ou notarização da Apple.
 
 Para abrir uma atualização, feche a versão anterior do Órbita quando terminar de executar seus projetos. A nova versão reaproveita o catálogo local existente.
 
@@ -46,6 +47,12 @@ Exemplos:
 Use uma porta diferente para cada serviço que deseja executar simultaneamente. O status **Em execução** indica que o processo está ativo; a aplicação pode ainda estar compilando. Consulte os logs para verificar quando está pronta.
 
 O botão do editor usa o protocolo `vscode://`, registrado pela instalação do VS Code. `⌘ N` abre o cadastro e `⌘ K` foca a busca.
+
+## Hot reload e filtros de logs
+
+Projetos com `pubspec.yaml` e comando `flutter run` em debug mostram **Hot reload** no cartão e na janela de logs. O botão envia `r` ao processo em execução, preservando o processo e o estado da aplicação. Ele é habilitado quando o Flutter anuncia o hot reload; em Chrome, Edge e web-server, também aguarda a mensagem de início da aplicação no navegador. O resultado aparece nos logs, incluindo eventuais erros de compilação. Modos release, profile e machine não habilitam esse controle.
+
+A janela de logs combina busca literal sem diferenciar maiúsculas e filtros de **Erros**, **Avisos** ou **Informações**. Os tipos são inferidos pelo texto das mensagens; stack traces acompanham o erro anterior. O contador mostra quantas linhas ficaram visíveis, **Copiar filtrado** copia apenas essas linhas e **Limpar filtros** restaura a visualização completa. Desmarque **Acompanhar** para pausar a rolagem automática enquanto analisa uma mensagem.
 
 ## Puxar e publicar na branch
 
@@ -79,6 +86,6 @@ npm test
 npm run smoke
 ```
 
-Os testes verificam persistência, importação, execução, logs, conflitos de porta, falhas e encerramento da árvore de processos. O smoke test verifica na interface o fluxo de cadastro, favorito, execução, logs, parada, busca e remoção de um projeto temporário. Salva uma captura local em `screenshots/`.
+Os testes verificam persistência, importação, execução, hot reload, filtros de logs, conflitos de porta, Git, falhas e encerramento da árvore de processos. O smoke test verifica na interface cadastro, favorito, execução, hot reload, filtros, parada, busca, publicação Git, pull e remoção de projetos temporários. Salva capturas locais em `screenshots/`.
 
 O aplicativo foi preparado para macOS. Os processos são executados em grupos próprios; serviços que deliberadamente se desacoplam do processo original (por exemplo, `docker compose up -d`) têm seu ciclo de vida gerenciado pela ferramenta correspondente.

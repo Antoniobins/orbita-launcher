@@ -1,4 +1,5 @@
 const paths = {
+  reload: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>',
   branch: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M6 7v10m0-5h6a6 6 0 0 0 6-5"/>',
   download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
   upload: '<path d="M12 16V3m-5 5 5-5 5 5M4 16v5h16v-5"/>',
@@ -32,6 +33,8 @@ const activeStatuses = ['running', 'starting', 'stopping'];
 let projects = [], view = 'all', filter = 'all', query = '', sort = 'favorite', logsId = null, removeId = null, toastTimer;
 const gitStates = new Map(), gitBusy = new Set();
 let publishId = null, publishState = null, publishing = false;
+let visibleLogText = '';
+const reloadBusy = new Set();
 
 function fillIcons(root = document) { root.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); }); }
 function notify(message, error = false) {
@@ -60,6 +63,7 @@ function card(project, groupIndex) {
     <div class="card-tags"><span class="group-tag">${icon('folder')}${escape(project.group)}</span>${statusHtml(project)}</div>
     <div class="card-command" title="${escape(project.command)}"><span>›</span>${escape(displayCommand)}</div>
     ${project.error ? `<p class="card-error">${escape(project.error)}</p>` : ''}
+    ${project.hotReloadSupported ? `<div class="reload-row"><span>Flutter · debug</span><button class="button secondary small" data-action="hotReload" ${project.status !== 'running' || !project.hotReloadReady || reloadBusy.has(project.id) ? 'disabled' : ''} title="Disponível quando o Flutter anunciar hot reload nos logs">${icon('reload')}${reloadBusy.has(project.id) ? 'Enviando…' : 'Hot reload'}</button></div>` : ''}
     <div class="card-bottom"><button class="button start-button ${busy ? 'stop-button' : ''}" data-action="${busy ? 'stop' : 'start'}" ${pending ? 'disabled' : ''}>${icon(busy ? 'stop' : 'play')}${pending ? statusLabels[project.status] : busy ? 'Parar projeto' : 'Iniciar projeto'}</button><button class="button secondary" data-action="open" title="Abrir no navegador" aria-label="Abrir ${escape(project.name)} no navegador" ${!project.url ? 'disabled' : ''}>${icon('external')}</button><button class="button secondary" data-action="editor" title="Abrir no VS Code" aria-label="Abrir ${escape(project.name)} no VS Code">${icon('code')}</button><button class="button secondary" data-action="logs" title="Ver logs" aria-label="Ver logs de ${escape(project.name)}">${icon('terminal')}</button><button class="button secondary" data-action="folder" title="Abrir pasta" aria-label="Abrir pasta de ${escape(project.name)}">${icon('folder')}</button></div>
     ${gitCard(project)}
   </article>`;
@@ -106,8 +110,16 @@ function updateLogs() {
   $('#logs-status').innerHTML = statusHtml(project);
   const output = $('#logs-output');
   const atBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 50;
-  output.textContent = project.logs || 'Os logs aparecem aqui quando você iniciar o projeto.';
-  if (atBottom) output.scrollTop = output.scrollHeight;
+  const result = window.orbitaLogs.filterLogs(project.logs, $('#logs-search').value, $('#logs-level').value);
+  visibleLogText = result.text;
+  const content = !result.total ? 'Os logs aparecem aqui quando você iniciar o projeto.' : !result.count ? 'Nenhuma linha corresponde aos filtros.' : result.text;
+  if (output.textContent !== content) output.textContent = content;
+  $('#logs-count').textContent = `${result.count} de ${result.total} linhas`;
+  $('#copy-logs').disabled = !result.count;
+  const reload = $('#logs-hot-reload');
+  reload.hidden = !project.hotReloadSupported;
+  reload.disabled = project.status !== 'running' || !project.hotReloadReady || reloadBusy.has(project.id);
+  if (atBottom && $('#logs-follow').checked) output.scrollTop = output.scrollHeight;
   $('#logs-command').textContent = project.command;
 }
 
@@ -142,15 +154,27 @@ $('#project-grid').addEventListener('click', event => {
   if (!button || button.disabled) return;
   const project = projects.find(p => p.id === button.closest('[data-id]').dataset.id);
   const action = button.dataset.action;
+  if (action === 'hotReload') { safely(() => reloadProject(project.id)); return; }
   if (action === 'git-pull') { safely(() => pullProject(project)); return; }
   if (action === 'git-publish') { safely(() => showPublish(project)); return; }
   if (action === 'edit') { showForm(project); return; }
-  if (action === 'logs') { logsId = project.id; $('#logs-dialog').showModal(); updateLogs(); $('#logs-output').scrollTop = $('#logs-output').scrollHeight; return; }
+  if (action === 'logs') { if (logsId !== project.id) { $('#logs-search').value = ''; $('#logs-level').value = 'all'; } logsId = project.id; $('#logs-dialog').showModal(); updateLogs(); $('#logs-output').scrollTop = $('#logs-output').scrollHeight; return; }
   if (action === 'remove') { removeId = project.id; $('#remove-text').textContent = `O cadastro de “${project.name}” será removido da sua lista.`; $('#remove-dialog').showModal(); return; }
   safely(() => window.orbita[action](project.id));
 });
 $('#confirm-remove').addEventListener('click', () => safely(async () => { await window.orbita.remove(removeId); $('#remove-dialog').close(); notify('Cadastro removido.'); }));
-$('#copy-logs').addEventListener('click', () => safely(async () => { await navigator.clipboard.writeText(projects.find(p => p.id === logsId)?.logs || ''); notify('Logs copiados.'); }));
+$('#copy-logs').addEventListener('click', () => safely(async () => { await navigator.clipboard.writeText(visibleLogText); notify('Logs filtrados copiados.'); }));
+$('#logs-search').addEventListener('input', updateLogs);
+$('#logs-level').addEventListener('change', updateLogs);
+$('#logs-reset').addEventListener('click', () => { $('#logs-search').value = ''; $('#logs-level').value = 'all'; updateLogs(); });
+$('#logs-follow').addEventListener('change', () => { if ($('#logs-follow').checked) $('#logs-output').scrollTop = $('#logs-output').scrollHeight; });
+$('#logs-hot-reload').addEventListener('click', () => safely(() => reloadProject(logsId)));
+async function reloadProject(id) {
+  if (reloadBusy.has(id)) return;
+  reloadBusy.add(id); render();
+  try { await window.orbita.hotReload(id); notify('Hot reload solicitado. Veja o resultado nos logs.'); }
+  finally { setTimeout(() => { reloadBusy.delete(id); render(); }, 1000); }
+}
 document.addEventListener('keydown', event => {
   if (event.metaKey || event.ctrlKey) {
     if (event.key.toLowerCase() === 'k') { event.preventDefault(); $('#search').focus(); }
