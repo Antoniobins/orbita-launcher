@@ -1,7 +1,7 @@
 {
   "name": "orbita-launcher",
   "productName": "Órbita",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Seu centro de comando para projetos locais.",
   "main": "src/main.cjs",
   "private": true,
@@ -9,7 +9,7 @@
     "start": "electron .",
     "test": "node --test tests/*.test.cjs",
     "smoke": "electron . --smoke-test",
-    "package": "electron-packager . Orbita --platform=darwin --out=dist --overwrite --icon=assets/icon.icns --ignore='^/(tests|scripts|data|IDEIAS-DE-PROJETOS.md|screenshots)(/|$)' --app-bundle-id=dev.antoniobins.orbita"
+    "package": "electron-packager . Orbita --platform=darwin --out=dist/v1.1.0 --overwrite --icon=assets/icon.icns --ignore='^/(tests|scripts|data|IDEIAS-DE-PROJETOS.md|screenshots)(/|$)' --app-bundle-id=dev.antoniobins.orbita"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",

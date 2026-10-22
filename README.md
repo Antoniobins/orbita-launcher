@@ -7,6 +7,7 @@ Um aplicativo desktop para organizar e rodar projetos locais com um clique. Cons
 - Cadastro de nome, pasta, comando, URL e coleção.
 - Botões para iniciar, parar, abrir no navegador, abrir no VS Code e revelar a pasta.
 - Logs em tempo real, favoritos, busca e filtros.
+- Branch atual e botões para puxar atualizações e publicar commits.
 - Verificação de porta local ocupada antes da execução.
 - Encerramento dos processos iniciados pelo app ao sair.
 - Catálogo persistido apenas no computador, sem conta ou servidor.
@@ -26,7 +27,9 @@ Para gerar o aplicativo:
 npm run package
 ```
 
-Abra `dist/Orbita-darwin-arm64/Orbita.app` em um Mac Apple Silicon; em um Mac Intel, o diretório termina em `x64`. O aplicativo gerado localmente não tem assinatura de distribuição ou notarização da Apple.
+Abra `dist/v1.1.0/Orbita-darwin-arm64/Orbita.app` em um Mac Apple Silicon; em um Mac Intel, o diretório termina em `x64`. O aplicativo gerado localmente não tem assinatura de distribuição ou notarização da Apple.
+
+Para abrir uma atualização, feche a versão anterior do Órbita quando terminar de executar seus projetos. A nova versão reaproveita o catálogo local existente.
 
 ## Cadastrar projetos
 
@@ -43,6 +46,18 @@ Exemplos:
 Use uma porta diferente para cada serviço que deseja executar simultaneamente. O status **Em execução** indica que o processo está ativo; a aplicação pode ainda estar compilando. Consulte os logs para verificar quando está pronta.
 
 O botão do editor usa o protocolo `vscode://`, registrado pela instalação do VS Code. `⌘ N` abre o cadastro e `⌘ K` foca a busca.
+
+## Puxar e publicar na branch
+
+Cada cartão mostra a branch atual e a quantidade de arquivos alterados. As informações são atualizadas ao abrir o aplicativo, cadastrar um projeto ou voltar para a janela.
+
+**Puxar** busca as alterações da branch remota e atualiza somente por fast-forward. Se houver alterações locais, conflitos ou históricos divergentes, o Órbita explica o impedimento para você resolver no editor.
+
+**Publicar** abre uma revisão com o destino remoto, os arquivos alterados e a mensagem do commit. Escolha os arquivos que deseja incluir e clique em **Criar commit e publicar**. Arquivos não selecionados, inclusive alterações já preparadas no Git, ficam preservados localmente. Para enviar commits já existentes, deixe os arquivos desmarcados e use **Publicar commits**.
+
+O destino segue o upstream da branch. Quando ainda não existe upstream, o app usa uma branch com o mesmo nome no remoto `origin` (ou no único remoto disponível) e configura o acompanhamento após o envio. A publicação não usa force push. Se o commit for criado e o envio falhar, ele permanece salvo no computador; reabra a revisão para tentar enviar novamente.
+
+O Git utiliza as credenciais já configuradas no computador. Projetos sem repositório, sem remoto ou em detached HEAD mostram os botões indisponíveis. A integração não publica projetos automaticamente.
 
 ## Descoberta local opcional
 

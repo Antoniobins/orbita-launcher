@@ -21,7 +21,7 @@
     </nav>
     <div class="nav-heading"><p class="nav-label">COLEÇÕES</p><span data-icon="layers"></span></div>
     <nav id="collections" aria-label="Coleções"></nav>
-    <div class="sidebar-bottom"><div class="machine-icon" data-icon="monitor"></div><div><strong>Feito para o seu ritmo</strong><p>Seus projetos. Seu computador.<br>Tudo no mesmo lugar.</p></div><div class="version">ÓRBITA <span>v1.0</span></div></div>
+    <div class="sidebar-bottom"><div class="machine-icon" data-icon="monitor"></div><div><strong>Feito para o seu ritmo</strong><p>Seus projetos. Seu computador.<br>Tudo no mesmo lugar.</p></div><div class="version">ÓRBITA <span>v1.1</span></div></div>
   </aside>
 
   <main>
@@ -44,6 +44,7 @@
   <dialog id="logs-dialog"><div class="modal-header"><div><p class="eyebrow">ACOMPANHE O QUE ESTÁ ACONTECENDO</p><h2 id="logs-title">Logs do projeto</h2></div><button class="icon-button close-dialog" aria-label="Fechar logs"><span data-icon="x"></span></button></div><div class="log-meta"><span id="logs-status"></span><button class="button secondary small" id="copy-logs"><span data-icon="copy"></span>Copiar logs</button></div><pre id="logs-output" tabindex="0"></pre><div class="logs-bottom"><span id="logs-command"></span><span>Últimos 100 KB · atualização automática</span></div></dialog>
 
   <dialog id="remove-dialog"><div class="modal-header"><div><p class="eyebrow">ORGANIZE SEU ESPAÇO</p><h2>Remover do Órbita?</h2></div></div><p id="remove-text"></p><p class="field-help">Os arquivos do projeto continuam no seu computador.</p><div class="modal-footer"><button class="button secondary close-dialog">Cancelar</button><button class="button danger" id="confirm-remove">Remover cadastro</button></div></dialog>
+  <dialog id="git-dialog"><form id="git-form"><div class="modal-header"><div><p class="eyebrow">DO SEU COMPUTADOR PARA A BRANCH</p><h2 id="git-title">Publicar projeto</h2></div><button type="button" class="icon-button close-dialog" aria-label="Fechar publicação"><span data-icon="x"></span></button></div><div class="git-destination"><span data-icon="branch"></span><div><strong id="git-target"></strong><small id="git-root"></small></div></div><p id="git-summary" class="git-summary"></p><div class="git-file-heading"><strong>Arquivos para este commit</strong><button type="button" class="button secondary small" id="git-select-all">Selecionar todos</button></div><div id="git-files" class="git-files"></div><p class="field-help git-help">Selecione os arquivos que deseja incluir. Outros arquivos e alterações já preparadas continuam no seu computador. Os commits já existentes na branch também serão enviados.</p><label>Mensagem do commit <span class="optional">para os arquivos selecionados</span><input id="git-commit-message" name="message" maxlength="500" placeholder="Ex.: Ajusta a tela de cadastro"></label><p class="form-error" id="git-error" role="alert"></p><div class="modal-footer"><button type="button" class="button secondary close-dialog">Cancelar</button><button type="submit" class="button primary" id="git-submit"><span data-icon="upload"></span>Publicar commits</button></div></form></dialog>
   <div class="toast" id="toast" role="status" hidden></div>
 </body>
 </html>

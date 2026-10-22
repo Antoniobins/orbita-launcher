@@ -1,4 +1,7 @@
 const paths = {
+  branch: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M6 7v10m0-5h6a6 6 0 0 0 6-5"/>',
+  download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
+  upload: '<path d="M12 16V3m-5 5 5-5 5 5M4 16v5h16v-5"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
   activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9Z"/>',
@@ -27,6 +30,8 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&a
 const statusLabels = { running: 'Em execução', starting: 'Iniciando…', stopping: 'Parando…', stopped: 'Parado', error: 'Precisa de atenção' };
 const activeStatuses = ['running', 'starting', 'stopping'];
 let projects = [], view = 'all', filter = 'all', query = '', sort = 'favorite', logsId = null, removeId = null, toastTimer;
+const gitStates = new Map(), gitBusy = new Set();
+let publishId = null, publishState = null, publishing = false;
 
 function fillIcons(root = document) { root.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); }); }
 function notify(message, error = false) {
@@ -38,6 +43,13 @@ function notify(message, error = false) {
 }
 async function safely(action) { try { return await action(); } catch (error) { notify(error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), true); } }
 function statusHtml(project) { return `<span class="status ${escape(project.status)}"><i></i>${statusLabels[project.status] || 'Parado'}</span>`; }
+function gitCard(project) {
+  const state = gitStates.get(project.id), busy = gitBusy.has(project.id);
+  const label = !state ? 'Verificando Git…' : !state.available ? 'Sem Git' : state.branch || 'Sem branch ativa';
+  const disabled = busy || !state?.available || !state.branch || !state.remote;
+  const reason = busy ? 'Operação Git em andamento' : !state ? 'Verificando repositório' : !state.available ? state.reason : !state.branch ? 'Escolha uma branch no editor' : !state.remote ? 'Configure um remoto origin ou o upstream da branch' : '';
+  return `<div class="git-card"><div class="git-branch" title="${escape(reason || state?.root || '')}">${icon('branch')}<span>${escape(label)}</span>${state?.files?.length ? `<b>${state.files.length}</b>` : ''}</div><div class="git-card-actions"><button class="button secondary small" data-action="git-pull" ${disabled ? 'disabled' : ''} title="${escape(reason || 'Puxar atualizações da branch')}">${icon('download')}${busy ? 'Aguarde…' : 'Puxar'}</button><button class="button secondary small" data-action="git-publish" ${disabled ? 'disabled' : ''} title="${escape(reason || 'Revisar e publicar na branch')}">${icon('upload')}Publicar</button></div></div>`;
+}
 function card(project, groupIndex) {
   const busy = activeStatuses.includes(project.status), pending = ['starting', 'stopping'].includes(project.status);
   const symbol = ['feather', 'heart', 'code'][groupIndex % 3];
@@ -49,6 +61,7 @@ function card(project, groupIndex) {
     <div class="card-command" title="${escape(project.command)}"><span>›</span>${escape(displayCommand)}</div>
     ${project.error ? `<p class="card-error">${escape(project.error)}</p>` : ''}
     <div class="card-bottom"><button class="button start-button ${busy ? 'stop-button' : ''}" data-action="${busy ? 'stop' : 'start'}" ${pending ? 'disabled' : ''}>${icon(busy ? 'stop' : 'play')}${pending ? statusLabels[project.status] : busy ? 'Parar projeto' : 'Iniciar projeto'}</button><button class="button secondary" data-action="open" title="Abrir no navegador" aria-label="Abrir ${escape(project.name)} no navegador" ${!project.url ? 'disabled' : ''}>${icon('external')}</button><button class="button secondary" data-action="editor" title="Abrir no VS Code" aria-label="Abrir ${escape(project.name)} no VS Code">${icon('code')}</button><button class="button secondary" data-action="logs" title="Ver logs" aria-label="Ver logs de ${escape(project.name)}">${icon('terminal')}</button><button class="button secondary" data-action="folder" title="Abrir pasta" aria-label="Abrir pasta de ${escape(project.name)}">${icon('folder')}</button></div>
+    ${gitCard(project)}
   </article>`;
 }
 function viewName() { return view === 'all' ? 'Todos os projetos' : view === 'running' ? 'Em execução' : view === 'favorites' ? 'Favoritos' : view.slice(6); }
@@ -120,7 +133,7 @@ $('#project-form').addEventListener('submit', async event => {
   if (!input.id) delete input.id;
   input.favorite = form.elements.favorite.checked;
   $('#save-project').disabled = true;
-  try { await window.orbita.save(input); $('#project-dialog').close(); notify('Projeto salvo. Tudo pronto para começar.'); }
+  try { const saved = await window.orbita.save(input); $('#project-dialog').close(); await refreshGit(saved.id); notify('Projeto salvo. Tudo pronto para começar.'); }
   catch (error) { $('#form-error').textContent = error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
   finally { $('#save-project').disabled = false; }
 });
@@ -129,6 +142,8 @@ $('#project-grid').addEventListener('click', event => {
   if (!button || button.disabled) return;
   const project = projects.find(p => p.id === button.closest('[data-id]').dataset.id);
   const action = button.dataset.action;
+  if (action === 'git-pull') { safely(() => pullProject(project)); return; }
+  if (action === 'git-publish') { safely(() => showPublish(project)); return; }
   if (action === 'edit') { showForm(project); return; }
   if (action === 'logs') { logsId = project.id; $('#logs-dialog').showModal(); updateLogs(); $('#logs-output').scrollTop = $('#logs-output').scrollHeight; return; }
   if (action === 'remove') { removeId = project.id; $('#remove-text').textContent = `O cadastro de “${project.name}” será removido da sua lista.`; $('#remove-dialog').showModal(); return; }
@@ -143,4 +158,71 @@ document.addEventListener('keydown', event => {
   }
 });
 window.orbita.onChange(next => { projects = next; render(); });
-safely(async () => { projects = await window.orbita.list(); render(); });
+async function refreshGit(id) {
+  try { gitStates.set(id, await window.orbita.gitStatus(id)); }
+  catch (error) { gitStates.set(id, { available: false, reason: error.message }); }
+  render();
+}
+async function refreshAllGit() {
+  const queue = projects.filter(p => !gitBusy.has(p.id)).map(p => p.id);
+  await Promise.all(Array.from({ length: 3 }, async () => { while (queue.length) await refreshGit(queue.shift()); }));
+}
+async function pullProject(project) {
+  gitBusy.add(project.id); render();
+  try { const result = await window.orbita.gitPull(project.id); gitStates.set(project.id, result.state); notify(result.message); }
+  finally { gitBusy.delete(project.id); await refreshGit(project.id); }
+}
+async function showPublish(project) {
+  if (gitBusy.has(project.id)) return;
+  const state = await window.orbita.gitStatus(project.id);
+  gitStates.set(project.id, state); render();
+  if (!state.available) throw new Error(state.reason);
+  if (!state.branch || !state.remote) throw new Error('Escolha uma branch e configure o remoto do projeto.');
+  if (state.operation || state.files.some(file => file.conflict)) throw new Error('Resolva os conflitos ou conclua a operação Git no editor antes de publicar.');
+  publishId = project.id; publishState = state;
+  $('#git-title').textContent = `Publicar ${project.name}`;
+  $('#git-target').textContent = `${state.branch} → ${state.remote}/${state.targetBranch}`;
+  $('#git-root').textContent = state.root;
+  $('#git-summary').textContent = `${state.files.length} arquivo(s) alterado(s) · ${state.ahead} commit(s) à frente do último estado conhecido do remoto.`;
+  $('#git-files').innerHTML = state.files.length ? state.files.map((file, index) => `<label class="git-file"><input type="checkbox" name="files" value="${index}"><span class="git-file-status">${escape(file.status.trim())}</span><span title="${escape(file.path)}">${escape(file.path)}</span></label>`).join('') : '<p class="git-no-files">Nenhum arquivo alterado. Você pode enviar os commits locais.</p>';
+  $('#git-select-all').hidden = !state.files.length;
+  $('#git-select-all').textContent = 'Selecionar todos';
+  $('#git-commit-message').value = '';
+  $('#git-error').textContent = '';
+  updatePublishButton();
+  $('#git-dialog').showModal();
+}
+function selectedFiles() { return [...$('#git-files').querySelectorAll('input:checked')].map(el => publishState.files[Number(el.value)].path); }
+function updatePublishButton() {
+  const selected = selectedFiles().length;
+  $('#git-submit').innerHTML = icon('upload') + (publishing ? 'Publicando…' : selected ? 'Criar commit e publicar' : 'Publicar commits');
+  $('#git-submit').disabled = publishing;
+  $('#git-commit-message').required = selected > 0;
+}
+$('#git-files').addEventListener('change', updatePublishButton);
+$('#git-select-all').addEventListener('click', () => {
+  const inputs = [...$('#git-files').querySelectorAll('input')];
+  const checked = !inputs.every(el => el.checked);
+  inputs.forEach(el => { el.checked = checked; });
+  $('#git-select-all').textContent = checked ? 'Desmarcar todos' : 'Selecionar todos';
+  updatePublishButton();
+});
+$('#git-dialog').addEventListener('cancel', event => { if (publishing) event.preventDefault(); });
+$('#git-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (publishing) return;
+  const input = { files: selectedFiles(), message: $('#git-commit-message').value, branch: publishState.branch, head: publishState.head, remote: publishState.remote, targetBranch: publishState.targetBranch };
+  publishing = true; gitBusy.add(publishId); updatePublishButton(); render();
+  $('#git-form').querySelectorAll('input, .close-dialog, #git-select-all').forEach(el => { el.disabled = true; });
+  try {
+    const result = await window.orbita.gitPublish(publishId, input);
+    gitStates.set(publishId, result.state); $('#git-dialog').close(); notify(result.message);
+  } catch (error) { $('#git-error').textContent = error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') + '\nPara tentar novamente, feche esta janela e abra Publicar para revisar o estado atualizado.'; }
+  finally {
+    publishing = false; gitBusy.delete(publishId);
+    $('#git-form').querySelectorAll('input, .close-dialog, #git-select-all').forEach(el => { el.disabled = false; });
+    updatePublishButton(); await refreshGit(publishId);
+  }
+});
+window.addEventListener('focus', () => { if (!publishing && !document.querySelector('dialog[open]')) refreshAllGit(); });
+safely(async () => { projects = await window.orbita.list(); render(); await refreshAllGit(); });

@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const { pathToFileURL } = require('node:url');
 const { ProjectManager } = require('./projects.cjs');
+const { GitService } = require('./git.cjs');
+const gitService = new GitService();
 
 const smoke = process.argv.includes('--smoke-test');
 if (smoke) app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'orbita-smoke-')));
@@ -23,6 +25,19 @@ function handler(name, callback) {
 }
 
 async function createWindow() {
+  let smokeGitDir, smokeGitProject;
+  if (smoke) {
+    smokeGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbita-ui-git-'));
+    const local = path.join(smokeGitDir, 'local'), remote = path.join(smokeGitDir, 'remote.git');
+    const run = (cwd, args) => require('node:child_process').execFileSync('/usr/bin/git', ['-C', cwd, ...args], { stdio: 'pipe' });
+    run(smokeGitDir, ['init', '--bare', '--initial-branch=main', remote]);
+    run(smokeGitDir, ['clone', remote, local]);
+    run(local, ['config', 'user.name', 'Orbita UI Test']); run(local, ['config', 'user.email', 'orbita@example.invalid']);
+    fs.writeFileSync(path.join(local, 'app.txt'), 'initial');
+    run(local, ['add', '.']); run(local, ['commit', '-m', 'initial']); run(local, ['push', '-u', 'origin', 'main']);
+    fs.writeFileSync(path.join(local, 'app.txt'), 'ui published');
+    smokeGitProject = manager.save({ name: 'Orbita Git UI Test', path: local, group: 'Testes', command: 'echo teste' });
+  }
   win = new BrowserWindow({
     width: 1380, height: 900, minWidth: 980, minHeight: 680,
     title: 'Órbita — seus projetos, em movimento', backgroundColor: '#f7f8fa',
@@ -38,6 +53,21 @@ async function createWindow() {
       const result = await win.webContents.executeJavaScript(`(async () => {
         await new Promise(r => setTimeout(r, 350));
         const waitFor = async check => { const until = Date.now() + 8000; while (!check()) { if (Date.now() > until) throw Error('Tempo esgotado na interface'); await new Promise(r => setTimeout(r, 40)); } };
+        const gitCard = () => [...document.querySelectorAll('.project-card')].find(el => el.querySelector('h3').textContent === 'Orbita Git UI Test');
+        await refreshGit(${JSON.stringify(smokeGitProject?.id)});
+        await waitFor(() => gitCard() && !gitCard().querySelector('[data-action="git-publish"]').disabled);
+        gitCard().querySelector('[data-action="git-publish"]').click();
+        await waitFor(() => document.querySelector('#git-dialog').open);
+        if (!document.querySelector('#git-target').textContent.includes('origin/main')) throw Error('Destino Git incorreto');
+        document.querySelector('#git-files input').click();
+        document.querySelector('#git-commit-message').value = 'ui selective commit';
+        document.querySelector('#git-form').requestSubmit();
+        await waitFor(() => !document.querySelector('#git-dialog').open);
+        gitCard().querySelector('[data-action="git-pull"]').click();
+        await waitFor(() => !gitCard().querySelector('[data-action="git-pull"]').disabled);
+        gitCard().querySelector('[data-action="remove"]').click();
+        document.querySelector('#confirm-remove').click();
+        await waitFor(() => !gitCard());
         if (!document.querySelector('#new-project')) throw Error('Botão de cadastro ausente');
         document.querySelector('#new-project').click();
         if (!document.querySelector('#project-dialog').open) throw Error('Cadastro não abriu');
@@ -71,9 +101,14 @@ async function createWindow() {
         return { title: document.title, cards: document.querySelectorAll('.project-card').length, bridge: typeof window.orbita.start };
       })()`);
       await new Promise(resolve => setTimeout(resolve, 250));
-      fs.mkdirSync(path.join(__dirname, '../screenshots'), { recursive: true });
-      fs.writeFileSync(path.join(__dirname, '../screenshots/orbita.png'), (await win.webContents.capturePage()).toPNG());
+      const screenshotDir = app.isPackaged ? path.join(app.getPath('userData'), 'screenshots') : path.join(__dirname, '../screenshots');
+      fs.mkdirSync(screenshotDir, { recursive: true });
+      fs.writeFileSync(path.join(screenshotDir, 'orbita.png'), (await win.webContents.capturePage()).toPNG());
       console.log('SMOKE_OK', JSON.stringify(result));
+      const published = require('node:child_process').execFileSync('/usr/bin/git', ['-C', path.join(smokeGitDir, 'remote.git'), 'show', 'main:app.txt'], { encoding: 'utf8' });
+      if (published !== 'ui published') throw new Error('A publicação da interface não chegou ao remoto temporário.');
+      fs.rmSync(smokeGitDir, { recursive: true, force: true });
+      console.log('GIT_UI_OK publish + pull via temporary local remote');
       app.quit();
     } catch (error) { console.error(error); app.exit(1); }
   }
@@ -100,6 +135,9 @@ if (locked) app.whenReady().then(async () => {
   handler('stop', id => manager.stop(id));
   handler('remove', id => manager.remove(id));
   handler('favorite', id => manager.favorite(id));
+  handler('gitStatus', id => gitService.inspect(manager.get(id).path));
+  handler('gitPull', id => gitService.run(manager.get(id).path, 'pull'));
+  handler('gitPublish', (id, input) => gitService.run(manager.get(id).path, 'publish', input));
   handler('chooseFolder', async () => {
     const result = await dialog.showOpenDialog(win, { title: 'Selecione a pasta do projeto', properties: ['openDirectory'] });
     return result.canceled ? null : result.filePaths[0];
@@ -133,5 +171,5 @@ app.on('before-quit', event => {
   if (quitting || !manager) return;
   event.preventDefault();
   quitting = true;
-  manager.shutdown().finally(() => app.quit());
+  Promise.all([manager.shutdown(), gitService.shutdown()]).finally(() => app.quit());
 });
