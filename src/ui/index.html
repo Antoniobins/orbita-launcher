@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Órbita — Seus projetos, em movimento</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="titlebar"></div>
+  <aside class="sidebar">
+    <a class="brand" href="#" aria-label="Órbita, início"><span class="brand-mark">◉</span> órbita<span class="brand-dot">.</span></a>
+    <div class="workspace"><span class="avatar">A</span><div><strong>Meu espaço</strong><small>Ambiente local</small></div><span class="local-dot"></span></div>
+    <p class="nav-label">WORKSPACE</p>
+    <nav aria-label="Navegação principal">
+      <button class="nav-item active" data-view="all"><span data-icon="grid"></span>Todos os projetos<span class="count" id="all-count">0</span></button>
+      <button class="nav-item" data-view="running"><span data-icon="activity"></span>Em execução<span class="count" id="running-count">0</span></button>
+      <button class="nav-item" data-view="favorites"><span data-icon="star"></span>Favoritos<span class="count" id="favorite-count">0</span></button>
+    </nav>
+    <div class="nav-heading"><p class="nav-label">COLEÇÕES</p><span data-icon="layers"></span></div>
+    <nav id="collections" aria-label="Coleções"></nav>
+    <div class="sidebar-bottom"><div class="machine-icon" data-icon="monitor"></div><div><strong>Feito para o seu ritmo</strong><p>Seus projetos. Seu computador.<br>Tudo no mesmo lugar.</p></div><div class="version">ÓRBITA <span>v1.0</span></div></div>
+  </aside>
+
+  <main>
+    <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong id="breadcrumb">Todos os projetos</strong></div><div class="local-badge"><i></i> Tudo acontece no seu Mac</div></header>
+    <section class="content">
+      <div class="page-heading"><div><p class="eyebrow">MENOS TERMINAIS. MAIS CRIAÇÃO.</p><h1 id="page-title">Seus projetos, em movimento<span>.</span></h1><p class="subtitle">Um lugar para abrir, rodar e acompanhar suas ideias.</p></div><button class="button primary" id="new-project"><span data-icon="plus"></span>Novo projeto <kbd>⌘ N</kbd></button></div>
+
+      <section class="overview" aria-label="Resumo dos projetos"><div class="overview-copy"><span class="orbit-art" aria-hidden="true"><i></i><b></b><em></em></span><div><span class="overview-kicker">PRONTO PARA CRIAR?</span><h2>Seu próximo passo é um play.</h2><p>Escolha um projeto e deixe o Órbita cuidar da partida.</p></div></div><div class="stats"><div><strong id="stat-total">0</strong><span>projetos no radar</span></div><div class="stat-divider"></div><div><strong id="stat-running">0<span class="green-dot"></span></strong><span>em execução</span></div></div></section>
+
+      <div class="toolbar"><div class="tabs" role="group" aria-label="Filtrar projetos"><button class="tab selected" data-filter="all">Todos <span id="tab-count">0</span></button><button class="tab" data-filter="running">Em execução</button><button class="tab" data-filter="stopped">Parados</button></div><div class="toolbar-right"><label class="search"><span data-icon="search"></span><input id="search" type="search" placeholder="Buscar projeto…" aria-label="Buscar projeto"><kbd>⌘ K</kbd></label><select id="sort" aria-label="Ordenar projetos"><option value="favorite">Favoritos primeiro</option><option value="name">Nome: A–Z</option><option value="group">Coleção</option></select></div></div>
+      <div class="section-heading"><h2 id="section-title">Todos os projetos <span id="visible-count">0</span></h2><span class="hint"><span data-icon="sparkles"></span> Uma ideia de cada vez.</span></div>
+      <div class="project-grid" id="project-grid"></div>
+      <div class="empty" id="empty" hidden><div data-icon="orbit"></div><h2 id="empty-title">Seu espaço para tirar ideias do papel.</h2><p id="empty-description">Cadastre seu primeiro projeto e comece com um clique.</p><button class="button primary" id="empty-add"><span data-icon="plus"></span>Cadastrar projeto</button></div>
+      <footer><span><i></i> Seu catálogo fica salvo neste computador.</span><span>Feito para quem gosta de construir <span class="footer-star">✳</span></span></footer>
+    </section>
+  </main>
+
+  <dialog id="project-dialog"><form id="project-form"><div class="modal-header"><div><p class="eyebrow">DÊ ESPAÇO À SUA PRÓXIMA IDEIA</p><h2 id="form-title">Novo projeto</h2></div><button type="button" class="icon-button close-dialog" aria-label="Fechar"><span data-icon="x"></span></button></div><input type="hidden" name="id"><label>Nome do projeto<input name="name" required maxlength="100" placeholder="Ex.: Meu aplicativo"></label><div class="form-row"><label>Coleção<input name="group" list="group-list" placeholder="Ex.: Pessoais" maxlength="80"><datalist id="group-list"></datalist></label><label>URL para abrir <span class="optional">opcional</span><input name="url" type="url" placeholder="http://localhost:3000"></label></div><label>Pasta do projeto<div class="folder-input"><input name="path" required placeholder="Selecione a pasta no seu computador"><button type="button" id="choose-folder" class="button secondary"><span data-icon="folder"></span>Escolher</button></div></label><label>Comando para iniciar<input name="command" class="mono" required placeholder="npm run dev" maxlength="2000"></label><p class="field-help">Executado dentro da pasta do projeto. Para Flutter, use <code>flutter run -d chrome --web-port=8080</code>.</p><label>Descrição <span class="optional">opcional</span><input name="description" placeholder="Uma frase para lembrar o que você está construindo" maxlength="160"></label><label class="check-label"><input type="checkbox" name="favorite">Marcar como favorito</label><p id="form-error" class="form-error" role="alert"></p><div class="modal-footer"><button type="button" class="button secondary close-dialog">Cancelar</button><button type="submit" class="button primary" id="save-project">Salvar projeto<span data-icon="arrow-right"></span></button></div></form></dialog>
+
+  <dialog id="logs-dialog"><div class="modal-header"><div><p class="eyebrow">ACOMPANHE O QUE ESTÁ ACONTECENDO</p><h2 id="logs-title">Logs do projeto</h2></div><button class="icon-button close-dialog" aria-label="Fechar logs"><span data-icon="x"></span></button></div><div class="log-meta"><span id="logs-status"></span><button class="button secondary small" id="copy-logs"><span data-icon="copy"></span>Copiar logs</button></div><pre id="logs-output" tabindex="0"></pre><div class="logs-bottom"><span id="logs-command"></span><span>Últimos 100 KB · atualização automática</span></div></dialog>
+
+  <dialog id="remove-dialog"><div class="modal-header"><div><p class="eyebrow">ORGANIZE SEU ESPAÇO</p><h2>Remover do Órbita?</h2></div></div><p id="remove-text"></p><p class="field-help">Os arquivos do projeto continuam no seu computador.</p><div class="modal-footer"><button class="button secondary close-dialog">Cancelar</button><button class="button danger" id="confirm-remove">Remover cadastro</button></div></dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

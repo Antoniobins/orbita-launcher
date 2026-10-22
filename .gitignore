@@ -1,0 +1,9 @@
+node_modules/
+dist/
+data/
+screenshots/
+.DS_Store
+*.log
+.env*
+!.env.example
+IDEIAS-DE-PROJETOS.md
